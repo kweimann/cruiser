@@ -124,7 +124,7 @@ class OGameAPI:
         """
         :param universe: universe name
         :param language: language code
-        :return: OgameAPI
+        :return: OGameAPI
         """
         server = get_server(universe, language)
         if not server:

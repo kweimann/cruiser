@@ -1,2 +1,2 @@
 import ogame.game
-from ogame.api_client import OGameAPI
+from ogame.api import OGameAPI
