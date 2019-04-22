@@ -22,8 +22,11 @@ def distance(origin_coords, dest_coords):
         return 5
 
 
-def flight_duration_of_fleet(distance, ships, speed_percentage=100,
-                             universe_fleet_speed_modifier=1, technology=None):
+def flight_duration(distance,
+                    ships,
+                    speed_percentage=100,
+                    universe_fleet_speed_modifier=1,
+                    technology=None):
     """
     :param distance: distance units between two coordinate systems
     :param ships: dictionary of {ship: ship_count}
@@ -42,12 +45,12 @@ def flight_duration_of_fleet(distance, ships, speed_percentage=100,
                             universe_fleet_speed_modifier=universe_fleet_speed_modifier)
 
 
-def fuel_consumption_of_fleet(distance,
-                              ships,
-                              speed_percentage=100,
-                              technology=None,
-                              universe_fleet_speed_modifier=1,
-                              universe_fuel_consumption_modifier=1):
+def fuel_consumption(distance,
+                     ships,
+                     speed_percentage=100,
+                     technology=None,
+                     universe_fleet_speed_modifier=1,
+                     universe_fuel_consumption_modifier=1):
     """
     :param distance: distance units between two coordinate systems
     :param ships: dictionary of {ship: ship_count}
@@ -58,11 +61,11 @@ def fuel_consumption_of_fleet(distance,
     :return: fuel consumption of whole fleet
     """
     total_fuel_consumption = 0
-    flight_duration = flight_duration_of_fleet(distance=distance,
-                                               ships=ships,
-                                               speed_percentage=speed_percentage,
-                                               universe_fleet_speed_modifier=universe_fleet_speed_modifier,
-                                               technology=technology)
+    flight_duration_ = flight_duration(distance=distance,
+                                       ships=ships,
+                                       speed_percentage=speed_percentage,
+                                       universe_fleet_speed_modifier=universe_fleet_speed_modifier,
+                                       technology=technology)
     for ship, ship_count in ships.items():
         if ship_count > 0:
             drive_params = _get_drive(ship, technology)
@@ -71,13 +74,13 @@ def fuel_consumption_of_fleet(distance,
             ship_fuel_consumption = _fuel_consumption(base_fuel_consumption=base_fuel_consumption,
                                                       distance=distance,
                                                       ship_speed=ship_speed_,
-                                                      flight_duration=flight_duration,
+                                                      flight_duration=flight_duration_,
                                                       universe_fleet_speed_modifier=universe_fleet_speed_modifier)
             total_fuel_consumption += ship_count * ship_fuel_consumption
     return round(total_fuel_consumption) + 1
 
 
-def cargo_capacity_of_fleet(ships, technology=None):
+def cargo_capacity(ships, technology=None):
     """
     :param ships: dictionary of {ship: ship_count}
     :param technology: dictionary of { technology: level }
