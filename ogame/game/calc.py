@@ -3,18 +3,6 @@ from ogame.game.ships import SHIPS
 from ogame.game.technology import TECHNOLOGY
 
 
-def fuel_consumption(base_fuel_consumption, distance, speed_percentage=100, universe_fuel_consumption_modifier=1):
-    """
-    :param base_fuel_consumption: base fuel consumption of the ship
-    :param distance: distance units between two coordinate systems
-    :param speed_percentage: percentage of ship's speed
-    :param universe_fuel_consumption_modifier: fuel consumption multiplier
-    :return: fuel consumption
-    """
-    return 1 + round((universe_fuel_consumption_modifier * base_fuel_consumption * distance) / 35000
-                     * (speed_percentage / 100 + 1) ** 2)
-
-
 def distance(origin_coords, dest_coords):
     """
     :param origin_coords: (galaxy, system, position)
@@ -34,18 +22,6 @@ def distance(origin_coords, dest_coords):
         return 5
 
 
-def flight_duration(distance, ship_speed, speed_percentage=100, universe_fleet_speed_modifier=1):
-    """
-    :param distance: distance units between two coordinate systems
-    :param ship_speed: speed of the ship
-    :param speed_percentage: percentage of ship's speed
-    :param universe_fleet_speed_modifier: universe fleet speed
-    :return: duration of the flight in seconds
-    """
-    return round((35000 / speed_percentage *
-                 math.sqrt(distance * 1000 / ship_speed) + 10) / universe_fleet_speed_modifier)
-
-
 def flight_duration_of_fleet(distance, ships, speed_percentage=100,
                              universe_fleet_speed_modifier=1, technology=None):
     """
@@ -60,35 +36,45 @@ def flight_duration_of_fleet(distance, ships, speed_percentage=100,
         ship_speed(ship, technology) for ship, ship_count in ships.items() if ship_count > 0
     ]
 
-    return flight_duration(distance=distance,
-                           ship_speed=min(ship_speeds),
-                           speed_percentage=speed_percentage,
-                           universe_fleet_speed_modifier=universe_fleet_speed_modifier)
+    return _flight_duration(distance=distance,
+                            ship_speed=min(ship_speeds),
+                            speed_percentage=speed_percentage,
+                            universe_fleet_speed_modifier=universe_fleet_speed_modifier)
 
 
-def fuel_consumption_of_fleet(distance, ships, speed_percentage=100, technology=None,
+def fuel_consumption_of_fleet(distance,
+                              ships,
+                              speed_percentage=100,
+                              technology=None,
+                              universe_fleet_speed_modifier=1,
                               universe_fuel_consumption_modifier=1):
     """
     :param distance: distance units between two coordinate systems
     :param ships: dictionary of {ship: ship_count}
     :param speed_percentage: percentage of fleet's speed
     :param technology: dictionary of { technology: level }
+    :param universe_fleet_speed_modifier: universe fleet speed
     :param universe_fuel_consumption_modifier: fuel consumption multiplier
     :return: fuel consumption of whole fleet
     """
     total_fuel_consumption = 0
-
+    flight_duration = flight_duration_of_fleet(distance=distance,
+                                               ships=ships,
+                                               speed_percentage=speed_percentage,
+                                               universe_fleet_speed_modifier=universe_fleet_speed_modifier,
+                                               technology=technology)
     for ship, ship_count in ships.items():
         if ship_count > 0:
             drive_params = _get_drive(ship, technology)
-            base_fuel_consumption = drive_params['base_fuel_consumption']
-            ship_fuel_consumption = fuel_consumption(base_fuel_consumption=base_fuel_consumption,
-                                                     distance=distance,
-                                                     speed_percentage=speed_percentage,
-                                                     universe_fuel_consumption_modifier=universe_fuel_consumption_modifier)
+            ship_speed_ = ship_speed(ship, technology)
+            base_fuel_consumption = universe_fuel_consumption_modifier * drive_params['base_fuel_consumption']
+            ship_fuel_consumption = _fuel_consumption(base_fuel_consumption=base_fuel_consumption,
+                                                      distance=distance,
+                                                      ship_speed=ship_speed_,
+                                                      flight_duration=flight_duration,
+                                                      universe_fleet_speed_modifier=universe_fleet_speed_modifier)
             total_fuel_consumption += ship_count * ship_fuel_consumption
-
-    return total_fuel_consumption
+    return round(total_fuel_consumption) + 1
 
 
 def cargo_capacity_of_fleet(ships, technology=None):
@@ -171,4 +157,37 @@ def _ship_speed(base_speed, drive_level, drive_multiplier):
     :param drive_multiplier: drive bonus factor
     :return: actual ship's speed
     """
-    return base_speed * (1 + drive_level * drive_multiplier)
+    return int(base_speed * (1 + drive_level * drive_multiplier))
+
+
+def _fuel_consumption(base_fuel_consumption,
+                      distance,
+                      ship_speed,
+                      flight_duration,
+                      universe_fleet_speed_modifier=1):
+    """
+    :param base_fuel_consumption: base fuel consumption of the ship
+    :param distance: distance units between two coordinate systems
+    :param ship_speed: speed of the ship
+    :param flight_duration duration of the flight in seconds
+    :param universe_fleet_speed_modifier: universe fleet speed
+    :return: fuel consumption of the ship
+    """
+    return base_fuel_consumption * distance / 35000 * (
+            35000 / (flight_duration * universe_fleet_speed_modifier - 10)
+            * math.sqrt(10 * distance / ship_speed) / 10 + 1) ** 2
+
+
+def _flight_duration(distance,
+                     ship_speed,
+                     speed_percentage=100,
+                     universe_fleet_speed_modifier=1):
+    """
+    :param distance: distance units between two coordinate systems
+    :param ship_speed: speed of the ship
+    :param speed_percentage: percentage of ship's speed
+    :param universe_fleet_speed_modifier: universe fleet speed
+    :return: duration of the flight in seconds
+    """
+    return round((35000 / speed_percentage *
+                 math.sqrt(distance * 1000 / ship_speed) + 10) / universe_fleet_speed_modifier)
