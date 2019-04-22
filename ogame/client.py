@@ -114,7 +114,7 @@ class OGame:
         fleet_details_elements = movement.findAll(class_='fleetDetails')
         fleets = []
         for fleet_details_el in fleet_details_elements:
-            fleet_id = join_digits(fleet_details_el['id'])
+            fleet_id = abs(join_digits(fleet_details_el['id']))
             arrival_time = int(fleet_details_el['data-arrival-time'])
             origin_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='origin').img['title']))
             dest_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='destination').img['title']))
@@ -253,9 +253,9 @@ class OGame:
         for event_el in event_elements:
             if 'partnerInfo' in event_el['class']:
                 # part of an ACS attack
-                event_id = next(join_digits(class_) for class_ in event_el['class'] if 'union' in class_)
+                event_id = next(abs(join_digits(class_)) for class_ in event_el['class'] if 'union' in class_)
             else:
-                event_id = join_digits(event_el['id'])
+                event_id = abs(join_digits(event_el['id']))
             arrival_time = int(event_el['data-arrival-time'])
             return_flight = str2bool(event_el['data-return-flight'])
             mission_id = int(event_el['data-mission-type'])
@@ -319,7 +319,7 @@ class OGame:
         smallplanets = planet_list.findAll(class_='smallplanet')
         planets = []
         for planet_div in smallplanets:
-            planet_id = join_digits(planet_div['id'])
+            planet_id = abs(join_digits(planet_div['id']))
             planet_name = planet_div.find(class_='planet-name').text.strip()
             planet_coordinates = extract_numbers(planet_div.find(class_='planet-koords').text)
             planet = {
