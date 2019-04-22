@@ -48,16 +48,16 @@ def flight_duration(distance,
 def fuel_consumption(distance,
                      ships,
                      speed_percentage=100,
-                     technology=None,
                      universe_fleet_speed_modifier=1,
-                     universe_fuel_consumption_modifier=1):
+                     universe_fuel_consumption_modifier=1,
+                     technology=None):
     """
     :param distance: distance units between two coordinate systems
     :param ships: dictionary of {ship: ship_count}
     :param speed_percentage: percentage of fleet's speed
-    :param technology: dictionary of { technology: level }
     :param universe_fleet_speed_modifier: universe fleet speed
     :param universe_fuel_consumption_modifier: fuel consumption multiplier
+    :param technology: dictionary of { technology: level }
     :return: fuel consumption of whole fleet
     """
     total_fuel_consumption = 0
