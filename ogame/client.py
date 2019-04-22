@@ -1,7 +1,6 @@
 import functools
 import logging
 import re
-import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -106,6 +105,7 @@ class OGame:
 
     def get_fleet_movement(self, return_fleet_id=None):
         movement = self._get_movement(return_fleet_id)
+        timestamp = int(movement.find('meta', {'name': 'ogame-timestamp'})['content'])
         slots_el = movement.find(class_='fleetSlots')
         if not slots_el:
             # when there is no movement the server redirects to fleet1
@@ -144,6 +144,7 @@ class OGame:
             }
             fleets.append(fleet)
         return {
+            'timestamp': timestamp,
             'fleets': fleets,
             'slots': {
                 'used': used_slots,
@@ -212,10 +213,11 @@ class OGame:
             'deuterium': resources.get('deuterium', 0),
             **ships_data
         }
-        min_departure_time = int(time.time())
+        min_departure_time = int(fleet3.find('meta', {'name': 'ogame-timestamp'})['content'])
         self._post_game_page(params={'page': 'movement', **payload}, data={'token': token})
-        max_departure_time = time.time()
-        fleets = self.get_fleet_movement()['fleets']
+        movement = self.get_fleet_movement()
+        max_departure_time = movement['timestamp']
+        fleets = movement['fleets']
         # It is assumed that the client sends all requests sequentially. If that is the case then
         # two flights may not share a single departure time. Moreover there are no overlapping
         # intervals [min_departure_time, max_departure_time] between any two flights. Consequently,
