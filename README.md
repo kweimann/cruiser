@@ -5,8 +5,9 @@ OGame client and bot with focus on smart fleet saving:
 * OGame bot for watching the account and saving fleet if necessary
 
 # Installation
-* install Python: Python 3.7.3
+* install Python 3.7.3
 * install requirements: `pip install -r requirements.txt`
+* configure account data in `client.yaml`
 * start bot: `python start_bot.py`
 
 # Contribution

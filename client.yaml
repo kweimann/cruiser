@@ -1,5 +1,5 @@
 account:
   username: <username>
   password: <password>
-  universe: <universe>
-  language: <language>
+  universe: <name of the universe>
+  language: <language e.g. en for United Kingdom>
