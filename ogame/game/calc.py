@@ -61,11 +61,13 @@ def fuel_consumption(distance,
     :return: fuel consumption of whole fleet
     """
     total_fuel_consumption = 0
+
     flight_duration_ = flight_duration(distance=distance,
                                        ships=ships,
                                        speed_percentage=speed_percentage,
                                        universe_fleet_speed_modifier=universe_fleet_speed_modifier,
                                        technology=technology)
+
     for ship, ship_count in ships.items():
         if ship_count > 0:
             drive_params = _get_drive(ship, technology)
@@ -77,6 +79,7 @@ def fuel_consumption(distance,
                                                       flight_duration=flight_duration_,
                                                       universe_fleet_speed_modifier=universe_fleet_speed_modifier)
             total_fuel_consumption += ship_count * ship_fuel_consumption
+
     return round(total_fuel_consumption) + 1
 
 
@@ -96,8 +99,8 @@ def cargo_capacity(ships, technology=None):
 
     for ship, ship_count in ships.items():
         if ship_count > 0:
-            cargo_capacity = SHIPS[ship]['cargo_capacity']
-            total_cargo_capacity += round(total_cargo_capacity_multiplier * ship_count * cargo_capacity)
+            cargo_capacity_ = SHIPS[ship]['cargo_capacity']
+            total_cargo_capacity += round(total_cargo_capacity_multiplier * ship_count * cargo_capacity_)
 
     return total_cargo_capacity
 
