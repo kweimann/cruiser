@@ -333,10 +333,13 @@ class OGame:
             planets.append(planet)
             moon_el = planet_div.find(class_='moonlink')
             if moon_el:
-                # TODO
+                moon_url = moon_el['href']
+                moon_url_params = urlparse(moon_url).query.split('&')
+                moon_id = join_digits(next(param for param in moon_url_params if 'cp' in param))
+                moon_name = moon_el.img['alt']
                 moon = {
-                    'id': None,
-                    'name': None,
+                    'id': moon_id,
+                    'name': moon_name,
                     'coordinates': planet_coordinates,
                     'type': 'moon'
                 }
