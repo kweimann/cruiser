@@ -1,0 +1,25 @@
+# account details
+account:
+  username: <username>  # account email
+  password: <password>  # account password
+  universe: <universe>  # name of the universe e.g. Uni1
+  language: <language>  # server language e.g. en
+# listeners for notifications from the bot
+listeners:
+  telegram:
+    api_token: <API token>  # unique authentication token of the telegram bot; see https://core.telegram.org/bots/api
+    chat_id: <chat id>      # id of the chat between you and the bot
+# bot settings
+bot:
+  listeners: []             # names of the listeners e.g. telegram
+
+  periodic_wakeup_min: 600  # minimum time between two wakeup calls to the bot (default = 10 minutes)
+  periodic_wakeup_max: 900  # maximum time between two wakeup calls to the bot (default = 15 minutes)
+
+  # If a hostile fleet arrives before `max_time_before_attack_to_act` value,
+  #  bot will attempt to defend the planet. Otherwise defense will be scheduled between
+  #  `min_time_before_attack_to_act` and `max_time_before_attack_to_act` before the attack.
+  min_time_before_attack_to_act: 120  # (default = 2 minutes)
+  max_time_before_attack_to_act: 180  # (default = 3 minutes)
+
+  request_timeout: 10       # time to wait on a response from a server (default = 10 seconds)

@@ -1,7 +1,7 @@
-import ogame.game.calc
-from ogame.game.constants import (
-    MISSIONS,
-    PLANET_TYPE
+from ogame.game import (
+    const,
+    data,
+    model
 )
-from ogame.game.ships import SHIPS
-from ogame.game.technology import TECHNOLOGY
+from ogame.game.client import OGame
+from ogame.game.engine import Engine

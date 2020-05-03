@@ -79,7 +79,7 @@ class Scheduler:
                     self._push(event)
                 try:
                     consume_event(event.data)
-                except:
+                except Exception:
                     logging.exception("Exception thrown in the main loop")
             else:
                 await asyncio.sleep(sleep_delay)

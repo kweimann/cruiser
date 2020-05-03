@@ -1,3 +1,8 @@
-import ogame.game
-from ogame.api import OGameAPI
-from ogame.client import OGame
+from ogame import (
+    api,
+    game,
+    util
+)
+from ogame.api.client import OGameAPI
+from ogame.game.client import OGame
+from ogame.game.engine import Engine

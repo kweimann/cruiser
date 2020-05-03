@@ -3,4 +3,5 @@ import dataclasses
 
 @dataclasses.dataclass
 class FetchEvents:
-    pass
+    """ Fetch and handle fleet events. """
+    id: str = None

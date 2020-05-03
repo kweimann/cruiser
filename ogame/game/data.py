@@ -1,10 +1,14 @@
+from ogame.game.const import (
+    Ship,
+    Resource,
+    Technology
+)
 
-SHIPS = {
-    'small_cargo': {
-        'id': 202,
+SHIP = {
+    Ship.small_cargo: {
         'base_cost': {
-            'metal': 2000,
-            'crystal': 2000
+            Resource.metal: 2000,
+            Resource.crystal: 2000
         },
         'requirements': {
             'technology': {
@@ -15,12 +19,12 @@ SHIPS = {
             }
         },
         'drives': {
-            'combustion_drive': {
+            Technology.combustion_drive: {
                 'min_level': 2,
                 'base_speed': 5000,
                 'base_fuel_consumption': 10
             },
-            'impulse_drive': {
+            Technology.impulse_drive: {
                 'min_level': 5,
                 'base_speed': 10000,
                 'base_fuel_consumption': 20
@@ -31,11 +35,10 @@ SHIPS = {
         'cargo_capacity': 5000,
     },
 
-    'large_cargo': {
-        'id': 203,
+    Ship.large_cargo: {
         'base_cost': {
-            'metal': 6000,
-            'crystal': 6000
+            Resource.metal: 6000,
+            Resource.crystal: 6000
         },
         'requirements': {
             'technology': {
@@ -46,7 +49,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'combustion_drive': {
+            Technology.combustion_drive: {
                 'min_level': 6,
                 'base_speed': 7500,
                 'base_fuel_consumption': 50
@@ -57,11 +60,10 @@ SHIPS = {
         'cargo_capacity': 25000,
     },
 
-    'light_fighter': {
-        'id': 204,
+    Ship.light_fighter: {
         'base_cost': {
-            'metal': 3000,
-            'crystal': 1000
+            Resource.metal: 3000,
+            Resource.crystal: 1000
         },
         'requirements': {
             'technology': {
@@ -72,7 +74,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'combustion_drive': {
+            Technology.combustion_drive: {
                 'min_level': 1,
                 'base_speed': 12500,
                 'base_fuel_consumption': 20
@@ -83,11 +85,10 @@ SHIPS = {
         'cargo_capacity': 50
     },
 
-    'heavy_fighter': {
-        'id': 205,
+    Ship.heavy_fighter: {
         'base_cost': {
-            'metal': 6000,
-            'crystal': 4000
+            Resource.metal: 6000,
+            Resource.crystal: 4000
         },
         'requirements': {
             'technology': {
@@ -99,7 +100,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'impulse_drive': {
+            Technology.impulse_drive: {
                 'min_level': 2,
                 'base_speed': 10000,
                 'base_fuel_consumption': 75
@@ -110,12 +111,11 @@ SHIPS = {
         'cargo_capacity': 100,
     },
 
-    'cruiser': {
-        'id': 206,
+    Ship.cruiser: {
         'base_cost': {
-            'metal': 20000,
-            'crystal': 7000,
-            'deuterium': 2000
+            Resource.metal: 20000,
+            Resource.crystal: 7000,
+            Resource.deuterium: 2000
         },
         'requirements': {
             'technology': {
@@ -127,7 +127,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'impulse_drive': {
+            Technology.impulse_drive: {
                 'min_level': 4,
                 'base_speed': 15000,
                 'base_fuel_consumption': 300
@@ -138,11 +138,10 @@ SHIPS = {
         'cargo_capacity': 800,
     },
 
-    'battleship': {
-        'id': 207,
+    Ship.battleship: {
         'base_cost': {
-            'metal': 45000,
-            'crystal': 15000
+            Resource.metal: 45000,
+            Resource.crystal: 15000
         },
         'requirements': {
             'technology': {
@@ -153,7 +152,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'hyperspace_drive': {
+            Technology.hyperspace_drive: {
                 'min_level': 4,
                 'base_speed': 10000,
                 'base_fuel_consumption': 500
@@ -164,12 +163,11 @@ SHIPS = {
         'cargo_capacity': 1500,
     },
 
-    'battlecruiser': {
-        'id': 215,
+    Ship.battlecruiser: {
         'base_cost': {
-            'metal': 30000,
-            'crystal': 40000,
-            'deuterium': 15000
+            Resource.metal: 30000,
+            Resource.crystal: 40000,
+            Resource.deuterium: 15000
         },
         'requirements': {
             'technology': {
@@ -182,7 +180,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'hyperspace_drive': {
+            Technology.hyperspace_drive: {
                 'min_level': 5,
                 'base_speed': 10000,
                 'base_fuel_consumption': 250
@@ -193,12 +191,11 @@ SHIPS = {
         'cargo_capacity': 750,
     },
 
-    'destroyer': {
-        'id': 213,
+    Ship.destroyer: {
         'base_cost': {
-            'metal': 60000,
-            'crystal': 50000,
-            'deuterium': 15000
+            Resource.metal: 60000,
+            Resource.crystal: 50000,
+            Resource.deuterium: 15000
         },
         'requirements': {
             'technology': {
@@ -210,7 +207,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'hyperspace_drive': {
+            Technology.hyperspace_drive: {
                 'min_level': 6,
                 'base_speed': 5000,
                 'base_fuel_consumption': 1000
@@ -221,12 +218,11 @@ SHIPS = {
         'cargo_capacity': 2000,
     },
 
-    'deathstar': {
-        'id': 214,
+    Ship.deathstar: {
         'base_cost': {
-            'metal': 5000000,
-            'crystal': 4000000,
-            'deuterium': 1000000
+            Resource.metal: 5000000,
+            Resource.crystal: 4000000,
+            Resource.deuterium: 1000000
         },
         'requirements': {
             'technology': {
@@ -239,7 +235,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'hyperspace_drive': {
+            Technology.hyperspace_drive: {
                 'min_level': 7,
                 'base_speed': 100,
                 'base_fuel_consumption': 1
@@ -250,12 +246,11 @@ SHIPS = {
         'cargo_capacity': 1000000,
     },
 
-    'bomber': {
-        'id': 211,
+    Ship.bomber: {
         'base_cost': {
-            'metal': 50000,
-            'crystal': 25000,
-            'deuterium': 15000
+            Resource.metal: 50000,
+            Resource.crystal: 25000,
+            Resource.deuterium: 15000
         },
         'requirements': {
             'technology': {
@@ -267,12 +262,12 @@ SHIPS = {
             }
         },
         'drives': {
-            'impulse_drive': {
+            Technology.impulse_drive: {
                 'min_level': 6,
                 'base_speed': 4000,
                 'base_fuel_consumption': 1000
             },
-            'hyperspace_drive': {
+            Technology.hyperspace_drive: {
                 'min_level': 8,
                 'base_speed': 5000,
                 'base_fuel_consumption': 1000
@@ -283,12 +278,11 @@ SHIPS = {
         'cargo_capacity': 500,
     },
 
-    'recycler': {
-        'id': 209,
+    Ship.recycler: {
         'base_cost': {
-            'metal': 10000,
-            'crystal': 6000,
-            'deuterium': 2000
+            Resource.metal: 10000,
+            Resource.crystal: 6000,
+            Resource.deuterium: 2000
         },
         'requirements': {
             'technology': {
@@ -300,10 +294,20 @@ SHIPS = {
             }
         },
         'drives': {
-            'combustion_drive': {
+            Technology.combustion_drive: {
                 'min_level': 6,
                 'base_speed': 2000,
                 'base_fuel_consumption': 300
+            },
+            Technology.impulse_drive: {
+                'min_level': 17,
+                'base_speed': 2000,
+                'base_fuel_consumption': 600
+            },
+            Technology.hyperspace_drive: {
+                'min_level': 15,
+                'base_speed': 2000,
+                'base_fuel_consumption': 900
             }
         },
         'shield_power': 10,
@@ -311,10 +315,9 @@ SHIPS = {
         'cargo_capacity': 20000,
     },
 
-    'espionage_probe': {
-        'id': 210,
+    Ship.espionage_probe: {
         'base_cost': {
-            'crystal': 1000
+            Resource.crystal: 1000
         },
         'requirements': {
             'technology': {
@@ -326,7 +329,7 @@ SHIPS = {
             }
         },
         'drives': {
-            'combustion_drive': {
+            Technology.combustion_drive: {
                 'min_level': 3,
                 'base_speed': 100000000,
                 'base_fuel_consumption': 1
@@ -337,12 +340,11 @@ SHIPS = {
         'cargo_capacity': 5,
     },
 
-    'colony_ship': {
-        'id': 208,
+    Ship.colony_ship: {
         'base_cost': {
-            'metal': 10000,
-            'crystal': 20000,
-            'deuterium': 10000
+            Resource.metal: 10000,
+            Resource.crystal: 20000,
+            Resource.deuterium: 10000
         },
         'requirements': {
             'technology': {
@@ -353,8 +355,8 @@ SHIPS = {
             }
         },
         'drives': {
-            'impulse_drive': {
-                'min_level': 4,
+            Technology.impulse_drive: {
+                'min_level': 3,
                 'base_speed': 2500,
                 'base_fuel_consumption': 1000
             }
@@ -362,5 +364,114 @@ SHIPS = {
         'shield_power': 100,
         'weapon_power': 50,
         'cargo_capacity': 7500,
+    },
+
+    Ship.reaper: {
+        'base_cost': {
+            Resource.metal: 85000,
+            Resource.crystal: 55000,
+            Resource.deuterium: 20000
+        },
+        'requirements': {
+            'technology': {
+                'hyperspace_technology': 6,
+                'hyperspace_drive': 7,
+                'shielding_technology': 6
+            },
+            'facilities': {
+                'shipyard': 10
+            }
+        },
+        'drives': {
+            Technology.hyperspace_drive: {
+                'min_level': 7,
+                'base_speed': 7000,
+                'base_fuel_consumption': 1100
+            }
+        },
+        'shield_power': 700,
+        'weapon_power': 2800,
+        'cargo_capacity': 10000
+    },
+
+    Ship.pathfinder: {
+        'base_cost': {
+            Resource.metal: 8000,
+            Resource.crystal: 15000,
+            Resource.deuterium: 8000
+        },
+        'requirements': {
+            'technology': {
+                'hyperspace_drive': 2,
+                'shielding_technology': 7
+            },
+            'facilities': {
+                'shipyard': 5
+            }
+        },
+        'drives': {
+            Technology.hyperspace_drive: {
+                'min_level': 2,
+                'base_speed': 12000,
+                'base_fuel_consumption': 300
+            }
+        },
+        'shield_power': 100,
+        'weapon_power': 200,
+        'cargo_capacity': 10000
+    }
+}
+
+TECHNOLOGY = {
+    Technology.combustion_drive: {
+        'base_cost': {
+            Resource.metal: 400,
+            Resource.deuterium: 600
+        },
+        'requirements': {
+            'technology': {
+                'energy_technology': 1,
+            },
+            'facilities': {
+                'research_lab': 1
+            }
+        },
+        'speed_multiplier': 0.1
+    },
+
+    Technology.impulse_drive: {
+        'base_cost': {
+            Resource.metal: 2000,
+            Resource.crystal: 4000,
+            Resource.deuterium: 600
+        },
+        'requirements': {
+            'technology': {
+                'energy_technology': 1,
+            },
+            'facilities': {
+                'research_lab': 2
+            }
+        },
+        'speed_multiplier': 0.2
+    },
+
+    Technology.hyperspace_drive: {
+        'base_cost': {
+            Resource.metal: 10000,
+            Resource.crystal: 20000,
+            Resource.deuterium: 6000
+        },
+        'requirements': {
+            'technology': {
+                'energy_technology': 5,
+                'shielding_technology': 5,
+                'hyperspace_technology': 3
+            },
+            'facilities': {
+                'research_lab': 7
+            }
+        },
+        'speed_multiplier': 0.3
     },
 }

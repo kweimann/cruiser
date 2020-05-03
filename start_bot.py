@@ -1,39 +1,61 @@
+import argparse
 import asyncio
 import logging.config
 
 import yaml
 
-from bot import OGameBot
-from bot.eventloop import Scheduler
-from ogame.client import OGame
+from bot import (
+    OGameBot,
+    Scheduler
+)
+from bot.listeners import TelegramListener
+
+from ogame import OGame
 
 
 def load_yaml(file):
-    with open(file) as fh:
-        return yaml.safe_load(fh)
+    return yaml.safe_load(open(file))
+
+
+def load_listeners(config):
+    listeners = {'telegram': TelegramListener}
+    listeners = [listeners[listener](**config['listeners'][listener])
+                 for listener in config['bot']['listeners'] if listener in listeners]
+    return listeners
 
 
 if __name__ == '__main__':
-    logging_config = load_yaml('logging.yaml')
-    client_config = load_yaml('client.yaml')
-    account_config = client_config['account']
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', required=True, default='config.yaml', help='Path to the config file.')
+    args = parser.parse_args()
 
-    logging.config.dictConfig(logging_config)
+    logging.config.dictConfig(load_yaml('logging.yaml'))
+    logging.getLogger('chardet.charsetprober').setLevel(logging.INFO)
 
-    client = OGame(universe=account_config['universe'],
-                   username=account_config['username'],
-                   password=account_config['password'],
-                   language=account_config['language'])
+    logging.debug('Loaded config from %s', args.config)
+    config = load_yaml(args.config)
+    account = config['account']
+    request_timeout = config['bot'].pop('request_timeout', 10)
+
+    client = OGame(universe=account['universe'],
+                   username=account['username'],
+                   password=account['password'],
+                   language=account['language'],
+                   request_timeout=request_timeout)
 
     scheduler = Scheduler()
+    bot = OGameBot(client, scheduler, **config['bot'])
 
-    bot = OGameBot(client, scheduler)
+    listeners = load_listeners(config)
+    for listener in listeners:
+        bot.add_listener(listener)
+        logging.debug('Added listener: %s', type(listener).__name__)
 
     loop = asyncio.get_event_loop()
 
     try:
         bot.start()
         loop.run_until_complete(scheduler.main_loop(bot.handle_event))
-    except:
+    except Exception:
         logging.exception("Exception thrown in the __main__")
         raise
