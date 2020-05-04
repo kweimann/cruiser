@@ -10,7 +10,6 @@ from ogame.game.const import (
     CoordsType,
     Resource,
     Ship,
-    CharacterClass,
     Technology
 )
 from ogame.game.model import (
@@ -22,7 +21,8 @@ from ogame.game.model import (
     Shipyard,
     Research,
     Resources,
-    Movement
+    Movement,
+    FleetDispatch
 )
 from ogame.util import (
     join_digits,
@@ -58,7 +58,7 @@ def keep_session(*, maxtries=1):
 
 
 class OGame:
-    def __init__(self, universe, username, password, language='en', request_timeout=10):
+    def __init__(self, universe, username, password, language, request_timeout=10):
         self.universe = universe
         self.username = username
         self.password = password
@@ -98,19 +98,19 @@ class OGame:
         technologies_el = research_soup.find(id='technologies')
         technologies = {}
         production = None
-        for technology_key in Technology:
-            technology_el = technologies_el.find('li', {'data-technology': technology_key.id}, class_='technology')
+        for technology in Technology:
+            technology_el = technologies_el.find('li', {'data-technology': technology.id}, class_='technology')
             level_el = technology_el.find('span', class_='level')
             level = int(level_el['data-value'])
             bonus = join_digits(level_el['data-bonus'])
-            technologies[technology_key] = level + bonus
+            technologies[technology] = level + bonus
             if technology_el['data-status'] == 'active':
                 if production is not None:
                     logging.warning('Multiple productions encountered.')
                     continue
                 start = int(technology_el['data-start'])
                 end = int(technology_el['data-end'])
-                production = Production(o=technology_key, start=start, end=end)
+                production = Production(o=technology, start=start, end=end)
         return Research(technology=technologies, production=production)
 
     def get_shipyard(self, planet: Union[Planet, int]) -> Shipyard:
@@ -118,20 +118,20 @@ class OGame:
         technologies_el = shipyard_soup.find(id='technologies')
         ships = {}
         production = None
-        for ship_key in Ship:
-            technology_el = technologies_el.find('li', {'data-technology': ship_key.id}, class_='technology')
-            amount_el = technology_el.find('span', class_='amount')
+        for ship in Ship:
+            ship_el = technologies_el.find('li', {'data-technology': ship.id}, class_='technology')
+            amount_el = ship_el.find('span', class_='amount')
             amount = int(amount_el['data-value'])
-            ships[ship_key] = amount
-            if technology_el['data-status'] == 'active':
+            ships[ship] = amount
+            if ship_el['data-status'] == 'active':
                 if production is not None:
                     logging.warning('Multiple productions encountered.')
                     continue
-                target_amount_el = technology_el.find('span', class_='targetamount')
+                target_amount_el = ship_el.find('span', class_='targetamount')
                 target_amount = int(target_amount_el['data-value'])
-                start = int(technology_el['data-start'])
-                end = int(technology_el['data-end'])
-                production = Production(o=ship_key, start=start, end=end, amount=target_amount - amount)
+                start = int(ship_el['data-start'])
+                end = int(ship_el['data-end'])
+                production = Production(o=ship, start=start, end=end, amount=target_amount - amount)
         return Shipyard(ships=ships, production=production)
 
     def get_resources(self, planet: Union[Planet, int]) -> Resources:
@@ -190,11 +190,11 @@ class OGame:
             mission = Mission(int(event_el['data-mission-type']))
             origin_galaxy, origin_system, origin_position = extract_numbers(event_el.find(class_='coordsOrigin').text)
             origin_type_el = event_el.find(class_='originFleet').find('figure')
-            origin_type = _parse_coords_type(origin_type_el)
+            origin_type = self._parse_coords_type(origin_type_el)
             origin = Coordinates(origin_galaxy, origin_system, origin_position, origin_type)
             dest_galaxy, dest_system, dest_position = extract_numbers(event_el.find(class_='destCoords').text)
             dest_type_el = event_el.find(class_='destFleet').find('figure')
-            dest_type = _parse_coords_type(dest_type_el)
+            dest_type = self._parse_coords_type(dest_type_el)
             dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
             player_id_el = event_el.find('a', class_='sendMail')
             player_id = int(player_id_el['data-playerid']) if player_id_el else None
@@ -210,100 +210,136 @@ class OGame:
 
     def get_fleet_movement(self, return_fleet: Union[FleetMovement, int] = None) -> Movement:
         movement_soup = self._get_movement(return_fleet)
+        movement_el = movement_soup.find(id='movement')
         timestamp = int(movement_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
-        fleet_details_elements = movement_soup.findAll(class_='fleetDetails')
-        slots_el = movement_soup.find(class_='fleetSlots')
-        if not slots_el:
+        if not movement_el:
             # when there is no movement the server redirects to fleet dispatch
-            slots_el = movement_soup.find(id='slots').find('div')
-        used_slots, max_slots = extract_numbers(slots_el.text)
-        fleets = []
-        for fleet_details_el in fleet_details_elements:
-            fleet_id = abs(join_digits(fleet_details_el['id']))
-            arrival_time = int(fleet_details_el['data-arrival-time'])
-            return_flight = str2bool(fleet_details_el['data-return-flight']) or False
-            mission = Mission(int(fleet_details_el['data-mission-type']))
-            origin_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='origin').img['title']))
-            dest_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='destination').img['title']))
-            if return_flight:
-                flight_duration = origin_time - dest_time
-                departure_time = dest_time - flight_duration
-            else:
-                departure_time = origin_time
-            end_time = int(fleet_details_el.find('span', class_='openDetails').a['data-end-time'])
-            reversal_el = fleet_details_el.find('span', class_='reversal')
-            if mission == Mission.expedition and not return_flight:
-                if not reversal_el:
-                    # fleet is currently on expedition
-                    holding = True
-                    holding_time = end_time - departure_time
+            slot_elements = movement_soup.find(id='slots').findAll('div')
+            used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
+            used_expedition_slots, max_expedition_slots = extract_numbers(slot_elements[1].text)
+            return Movement(fleets=[],
+                            used_fleet_slots=used_fleet_slots,
+                            max_fleet_slots=max_fleet_slots,
+                            used_expedition_slots=used_expedition_slots,
+                            max_expedition_slots=max_expedition_slots,
+                            timestamp=timestamp)
+        else:
+            fleet_slots_el = movement_el.find(class_='fleetSlots')
+            expedition_slots_el = movement_el.find(class_='expSlots')
+            fleet_details_elements = movement_el.findAll(class_='fleetDetails')
+            used_fleet_slots, max_fleet_slots = extract_numbers(fleet_slots_el.text)
+            used_expedition_slots, max_expedition_slots = extract_numbers(expedition_slots_el.text)
+            fleets = []
+            for fleet_details_el in fleet_details_elements:
+                fleet_id = abs(join_digits(fleet_details_el['id']))
+                arrival_time = int(fleet_details_el['data-arrival-time'])
+                return_flight = str2bool(fleet_details_el['data-return-flight']) or False
+                mission = Mission(int(fleet_details_el['data-mission-type']))
+                origin_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='origin').img['title']))
+                dest_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='destination').img['title']))
+                if return_flight:
+                    flight_duration = origin_time - dest_time
+                    departure_time = dest_time - flight_duration
                 else:
-                    # fleet is flying to expedition
+                    departure_time = origin_time
+                end_time = int(fleet_details_el.find('span', class_='openDetails').a['data-end-time'])
+                reversal_el = fleet_details_el.find('span', class_='reversal')
+                if mission == Mission.expedition and not return_flight:
+                    if not reversal_el:
+                        # fleet is currently on expedition
+                        holding = True
+                        holding_time = end_time - departure_time
+                    else:
+                        # fleet is flying to expedition
+                        holding = False
+                        flight_duration = end_time - departure_time
+                        holding_time = arrival_time - departure_time - 2 * flight_duration
+                else:
                     holding = False
-                    flight_duration = end_time - departure_time
-                    holding_time = arrival_time - departure_time - 2 * flight_duration
-            else:
-                holding = False
-                holding_time = 0
-            origin_galaxy, origin_system, origin_position = extract_numbers(
-                fleet_details_el.find(class_='originCoords').text)
-            origin_type_el = fleet_details_el.find(class_='originPlanet').find('figure')
-            origin_type = _parse_coords_type(origin_type_el)
-            origin = Coordinates(origin_galaxy, origin_system, origin_position, origin_type)
-            dest_galaxy, dest_system, dest_position = extract_numbers(
-                fleet_details_el.find(class_='destinationCoords').text)
-            dest_type_el = fleet_details_el.find(class_='destinationPlanet').find('figure')
-            if dest_type_el:
-                dest_type = _parse_coords_type(dest_type_el)
-            else:
-                # destination type is a planet by default
-                dest_type = CoordsType.planet
-            dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
-            fleet = FleetMovement(id=fleet_id,
-                                  origin=origin,
-                                  dest=dest,
-                                  departure_time=departure_time,
-                                  arrival_time=arrival_time,
-                                  mission=mission,
-                                  return_flight=return_flight,
-                                  holding=holding,
-                                  holding_time=holding_time)
-            fleets.append(fleet)
-        return Movement(fleets=fleets, used_slots=used_slots, max_slots=max_slots, timestamp=timestamp)
+                    holding_time = 0
+                origin_galaxy, origin_system, origin_position = extract_numbers(
+                    fleet_details_el.find(class_='originCoords').text)
+                origin_type_el = fleet_details_el.find(class_='originPlanet').find('figure')
+                origin_type = self._parse_coords_type(origin_type_el)
+                origin = Coordinates(origin_galaxy, origin_system, origin_position, origin_type)
+                dest_galaxy, dest_system, dest_position = extract_numbers(
+                    fleet_details_el.find(class_='destinationCoords').text)
+                dest_type_el = fleet_details_el.find(class_='destinationPlanet').find('figure')
+                if dest_type_el:
+                    dest_type = self._parse_coords_type(dest_type_el)
+                else:
+                    # destination type is a planet by default
+                    dest_type = CoordsType.planet
+                dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
+                fleet = FleetMovement(id=fleet_id,
+                                      origin=origin,
+                                      dest=dest,
+                                      departure_time=departure_time,
+                                      arrival_time=arrival_time,
+                                      mission=mission,
+                                      return_flight=return_flight,
+                                      holding=holding,
+                                      holding_time=holding_time)
+                fleets.append(fleet)
+            return Movement(fleets=fleets,
+                            used_fleet_slots=used_fleet_slots,
+                            max_fleet_slots=max_fleet_slots,
+                            used_expedition_slots=used_expedition_slots,
+                            max_expedition_slots=max_expedition_slots,
+                            timestamp=timestamp)
 
-    def dispatch_fleet(self, *,
-                       origin: Union[Planet, int],
-                       dest: Union[Planet, Coordinates],
-                       mission: Mission,
-                       ships: Union[Dict[Ship, int], str] = 'all',
-                       fleet_speed: int = 10,
-                       resources: Dict[Resource, int] = None,
-                       holding_time: int = None):
-        """
-        @return: flight dictionary
-        {
-            dest: Coordinates,
-            ships: Ship -> int,
-            mission: Mission,
-            timestamp: int
-        }
-        """
+    def get_fleet_dispatch(self, planet: Union[Planet, int]) -> FleetDispatch:
+        fleet_dispatch_soup = self._get_fleet_dispatch(planet)
+        token = find_first_between(str(fleet_dispatch_soup), left='fleetSendingToken = "', right='"')
+        timestamp = int(fleet_dispatch_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
+        slot_elements = fleet_dispatch_soup.find(id='slots').findAll('div', recursive=False)
+        used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
+        used_expedition_slots, max_expedition_slots = extract_numbers(slot_elements[1].text)
+        technologies_el = fleet_dispatch_soup.find(id='technologies')
+        if technologies_el:
+            ships = {}
+            for ship in Ship:
+                ship_el = technologies_el.find('li', {'data-technology': ship.id}, class_='technology')
+                amount_el = ship_el.find('span', class_='amount')
+                amount = int(amount_el['data-value'])
+                ships[ship] = amount
+        else:
+            # there are no ships on this planet
+            ships = {}
+        return FleetDispatch(dispatch_token=token,
+                             ships=ships,
+                             used_fleet_slots=used_fleet_slots,
+                             max_fleet_slots=max_fleet_slots,
+                             used_expedition_slots=used_expedition_slots,
+                             max_expedition_slots=max_expedition_slots,
+                             timestamp=timestamp)
+
+    def send_fleet(self, *,
+                   origin: Union[Planet, int],
+                   dest: Union[Planet, Coordinates],
+                   mission: Mission,
+                   ships: Union[Dict[Ship, int], str] = 'all',
+                   fleet_speed: int = 10,
+                   resources: Dict[Resource, int] = None,
+                   holding_time: int = None,
+                   fleet_dispatch: FleetDispatch = None) -> FleetDispatch:
+        """ @return: FleetDispatch before sending the fleet. """
         if isinstance(dest, Planet):
             dest = dest.coords
+        if not resources:
+            resources = {}
         if mission in [Mission.expedition, Mission.defend]:
             holding_time = holding_time or 1
         else:
-            holding_time = holding_time or 0
-        resources = resources or {}
-        fleet_dispatch_soup = self._get_fleet_dispatch(origin)
-        timestamp = int(fleet_dispatch_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
-        token = find_first_between(str(fleet_dispatch_soup), left='fleetSendingToken = "', right='"')
+            if holding_time is not None:
+                logging.warning('Setting `holding_time` to 0')
+            holding_time = 0
+        if fleet_dispatch is None:
+            fleet_dispatch = self.get_fleet_dispatch(origin)
         if ships == 'all':
-            fleet_dispatch_api_string = fleet_dispatch_soup.find(id='FLEETAPI').value
-            fleet_dispatch = _parse_fleet_dispatch_api_string(fleet_dispatch_api_string)
-            ships = fleet_dispatch['ships']
+            ships = fleet_dispatch.ships
         self._post_fleet_dispatch(
-            {'token': token,
+            {'token': fleet_dispatch.dispatch_token,
              'galaxy': dest.galaxy,
              'system': dest.system,
              'position': dest.position,
@@ -320,11 +356,7 @@ class OGame:
              'union': 0,
              'holdingtime': holding_time,
              **{f'am{ship.id}': amount for ship, amount in ships.items() if amount > 0}})
-        flight = {'dest': dest,
-                  'ships': ships,
-                  'mission': mission,
-                  'timestamp': timestamp}
-        return flight
+        return fleet_dispatch
 
     @property
     def account(self):
@@ -395,7 +427,7 @@ class OGame:
                                                                 'ajax': 1})
 
     def _post_fleet_dispatch(self, fleet_dispatch_data):
-        self._session.request(
+        return self._session.request(
             method='post',
             url=self._base_game_url,
             timeout=self.request_timeout,
@@ -483,44 +515,13 @@ class OGame:
         if self._server_url:
             return f'https://{self._server_url}/game/index.php'
 
-
-def _parse_coords_type(figure_el):
-    if 'planet' in figure_el['class']:
-        return CoordsType.planet
-    elif 'moon' in figure_el['class']:
-        return CoordsType.moon
-    elif 'tf' in figure_el['class']:
-        return CoordsType.debris
-    else:
-        raise ValueError('Failed to parse coordinate type.')
-
-
-def _parse_fleet_dispatch_api_string(api_string):
-    """
-    @param api_string: api string
-    @return: fleet dispatch data
-    {
-        origin_coords: tuple,
-        character_class: CharacterClass,
-        ships: Ship -> amount
-    }
-    """
-    fields = api_string.split('|')
-    coords = _parse_api_field(fields[0])
-    character_class = _parse_api_field(fields[1])
-    ships = {Ship(ship_id): amount for ship_id, amount in map(extract_numbers, fields[2:])}
-    return {'origin_coords': coords,
-            'character_class': character_class,
-            'ships': ships}
-
-
-def _parse_api_field(field):
-    key, value = field.split(';')
-    if key == 'coords':
-        value = extract_numbers(value)
-    elif key == 'characterClassId':
-        key = 'character_class'
-        value = CharacterClass(int(value))
-    else:
-        raise ValueError(f'Unknown field: {field}')
-    return key, value
+    @staticmethod
+    def _parse_coords_type(figure_el):
+        if 'planet' in figure_el['class']:
+            return CoordsType.planet
+        elif 'moon' in figure_el['class']:
+            return CoordsType.moon
+        elif 'tf' in figure_el['class']:
+            return CoordsType.debris
+        else:
+            raise ValueError('Failed to parse coordinate type.')

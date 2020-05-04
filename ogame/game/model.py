@@ -102,14 +102,31 @@ class FleetMovement:
 @dataclasses.dataclass
 class Movement:
     fleets: List[FleetMovement]
-    used_slots: int
-    max_slots: int
+    used_fleet_slots: int
+    max_fleet_slots: int
+    used_expedition_slots: int
+    max_expedition_slots: int
     timestamp: int
 
     @property
-    def free_slots(self) -> int: return self.max_slots - self.used_slots
+    def free_fleet_slots(self) -> int: return self.max_fleet_slots - self.used_fleet_slots
+
+    @property
+    def free_expedition_slots(self) -> int: return self.max_expedition_slots - self.used_expedition_slots
 
 
 @dataclasses.dataclass
-class FlightData:
-    dest: Coordinates
+class FleetDispatch:
+    dispatch_token: str
+    ships: Dict[Ship, int]
+    used_fleet_slots: int
+    max_fleet_slots: int
+    used_expedition_slots: int
+    max_expedition_slots: int
+    timestamp: int
+
+    @property
+    def free_fleet_slots(self) -> int: return self.max_fleet_slots - self.used_fleet_slots
+
+    @property
+    def free_expedition_slots(self) -> int: return self.max_expedition_slots - self.used_expedition_slots

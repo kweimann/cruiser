@@ -1,10 +1,15 @@
 import logging
-import pprint
 import sys
 import time
 import traceback
 
 import requests
+
+from bot.protocol import (
+    NotifyEscapeScheduled,
+    NotifyFleetRecalled,
+    NotifyFleetEscaped
+)
 
 
 class Listener:
@@ -18,40 +23,33 @@ class TelegramListener(Listener):
         self.api_token = api_token
 
     def notify(self, log):
-        name = log.get('log_name', None)
-        if name == 'scheduled_escape':
-            origin = log['origin']
-            hostile_arrival = time.ctime(log['hostile_arrival'])
-            escape_time = time.ctime(log['escape_time'])
-            message = f'Hostile fleet attacking `{origin}` on `{hostile_arrival}`. ' \
+        if isinstance(log, NotifyEscapeScheduled):
+            hostile_arrival = time.ctime(log.hostile_arrival)
+            escape_time = time.ctime(log.escape_time)
+            message = f'Hostile fleet attacking `{log.planet}` on `{hostile_arrival}`. ' \
                       f'Scheduled escape on `{escape_time}`.'
-        elif name == 'return_flight':
-            error = log.get('error', None)
-            origin = log['fleet'].origin
-            dest = log['fleet'].dest
-            hostile_arrival = time.ctime(log['hostile_arrival'])
-            if error:
-                message = f'Failed to recall fleet back to `{origin}` ' \
-                          f'due to attack on `{dest}` on `{hostile_arrival}`: `{error}`'
+        elif isinstance(log, NotifyFleetEscaped):
+            hostile_arrival = time.ctime(log.hostile_arrival)
+            if log.error:
+                message = f'Failed to save fleet from an attack on `{log.origin}` ' \
+                          f'on `{hostile_arrival}`: {log.error}'
             else:
-                message = f'Recalled fleet back to `{origin}` ' \
-                          f'due to attack on `{dest}` on `{hostile_arrival}`.'
-        elif name == 'escape_attack':
-            error = log.get('error', None)
-            origin = log['origin']
-            hostile_arrival = time.ctime(log['hostile_arrival'])
-            if error:
-                message = f'Failed to save fleet from an attack on `{origin}` on `{hostile_arrival}`: {error}'
+                message = f'Fleet escaped from {log.origin} to {log.destination} ' \
+                          f'due to an attack on `{hostile_arrival}`.'
+        elif isinstance(log, NotifyFleetRecalled):
+            hostile_arrival = time.ctime(log.hostile_arrival)
+            if log.error:
+                message = f'Failed to recall fleet back to `{log.origin}` ' \
+                          f'due to attack on `{log.destination}` on `{hostile_arrival}`: `{log.error}`'
             else:
-                message = f'Fleet escaped from an attack on `{origin}` on `{hostile_arrival}`.'
+                message = f'Recalled fleet back to `{log.origin}` ' \
+                          f'due to attack on `{log.destination}` on `{hostile_arrival}`.'
         else:
-            if name:
-                logging.warning(f'Unknown log `{name}`: {log}')
-            else:
-                logging.warning(f'Unknown log: {log}')
-            message = f'`{pprint.pformat(log)}`'
-        message = self._escape_markdown_string(message)
-        self._send_message(message, parse_mode='MarkdownV2')
+            logging.warning(f'Unknown log: {log}')
+            message = None
+        if message:
+            message = self._escape_markdown_string(message)
+            self._send_message(message, parse_mode='MarkdownV2')
 
     def notify_exception(self, exc_info=None):
         if exc_info is None:

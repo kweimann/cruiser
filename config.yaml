@@ -13,8 +13,8 @@ listeners:
 bot:
   listeners: []             # names of the listeners e.g. telegram
 
-  periodic_wakeup_min: 600  # minimum time between two wakeup calls to the bot (default = 10 minutes)
-  periodic_wakeup_max: 900  # maximum time between two wakeup calls to the bot (default = 15 minutes)
+  sleep_min: 600  # minimum sleep time between two wakeup calls to the bot (default = 10 minutes)
+  sleep_max: 900  # maximum sleep time between two wakeup calls to the bot (default = 15 minutes)
 
   # If a hostile fleet arrives before `max_time_before_attack_to_act` value,
   #  bot will attempt to defend the planet. Otherwise defense will be scheduled between

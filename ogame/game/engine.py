@@ -52,11 +52,11 @@ class Engine:
                         fleet_speed: int = 100,
                         technology: Dict[Technology, int] = None) -> int:
         """
-        :param distance: distance units between two coordinate systems
-        :param ships: dictionary describing the size of the fleet
-        :param fleet_speed: fleet speed
-        :param technology: dictionary describing the current technology levels
-        :return: duration of the flight in seconds
+        @param distance: distance units between two coordinate systems
+        @param ships: dictionary describing the size of the fleet
+        @param fleet_speed: fleet speed
+        @param technology: dictionary describing the current technology levels
+        @return: duration of the flight in seconds
         """
         lowest_ship_speed = min([self.ship_speed(ship, technology) for ship, amount in ships.items() if amount > 0])
         return self._flight_duration(distance=distance,
@@ -67,13 +67,15 @@ class Engine:
                          distance: int,
                          ships: Dict[Ship, int],
                          flight_duration: int,
+                         holding_time: int = 0,
                          technology: Dict[Technology, int] = None) -> int:
         """
-        :param distance: distance units between two coordinate systems
-        :param ships: dictionary describing the size of the fleet
-        :param flight_duration: duration of the flight in seconds
-        :param technology: dictionary describing the current technology levels
-        :return: fuel consumption of the entire fleet
+        @param distance: distance units between two coordinate systems
+        @param ships: dictionary describing the size of the fleet
+        @param flight_duration: duration of the flight in seconds
+        @param holding_time: holding duration in hours
+        @param technology: dictionary describing the current technology levels
+        @return: fuel consumption of the entire fleet
         """
         total_fuel_consumption = 0
         for ship, amount in ships.items():
@@ -87,15 +89,18 @@ class Engine:
                                                                ship_speed=ship_speed_,
                                                                flight_duration=flight_duration)
                 total_fuel_consumption += ship_fuel_consumption * amount
+                if holding_time:
+                    ship_holding_consumption = holding_time * base_fuel_consumption / 10
+                    total_fuel_consumption += ship_holding_consumption * amount
         return round(total_fuel_consumption) + 1
 
     def cargo_capacity(self,
                        ships: Dict[Ship, int],
                        technology: Dict[Technology, int] = None) -> int:
         """
-        :param ships: dictionary describing the size of the fleet
-        :param technology: dictionary describing the current technology levels
-        :return: cargo capacity of the entire fleet
+        @param ships: dictionary describing the size of the fleet
+        @param technology: dictionary describing the current technology levels
+        @return: cargo capacity of the entire fleet
         """
         total_cargo_capacity_factor = 1
         total_cargo_capacity = 0
@@ -115,9 +120,9 @@ class Engine:
     def ship_speed(ship: Ship,
                    technology: Dict[Technology, int] = None) -> int:
         """
-        :param ship: ship
-        :param technology: dictionary describing the current technology levels
-        :return: actual speed of the ship
+        @param ship: ship
+        @param technology: dictionary describing the current technology levels
+        @return: actual speed of the ship
         """
         drive_params = Engine._get_drive(ship, technology)
         base_speed = drive_params['base_speed']
@@ -131,9 +136,9 @@ class Engine:
     def _get_drive(ship: Ship,
                    technology: Dict[Technology, int] = None):
         """
-        :param ship: ship
-        :param technology: dictionary describing the current technology levels
-        :return: updated drive params dictionary
+        @param ship: ship
+        @param technology: dictionary describing the current technology levels
+        @return: updated drive params dictionary
         {
             drive: Technology,
             level: int,
@@ -169,10 +174,10 @@ class Engine:
                     drive_level: int,
                     drive_factor: float) -> int:
         """
-        :param base_speed: base speed of a ship
-        :param drive_level: drive level
-        :param drive_factor: drive bonus factor
-        :return: actual ship's speed
+        @param base_speed: base speed of a ship
+        @param drive_level: drive level
+        @param drive_factor: drive bonus factor
+        @return: actual ship's speed
         """
         return int(base_speed * (1 + drive_level * drive_factor))
 
@@ -182,11 +187,11 @@ class Engine:
                           ship_speed: int,
                           flight_duration: int) -> float:
         """
-        :param base_fuel_consumption: base fuel consumption of the ship
-        :param distance: distance units between two coordinate systems
-        :param ship_speed: ship speed
-        :param flight_duration duration of the flight in seconds
-        :return: fuel consumption of the ship
+        @param base_fuel_consumption: base fuel consumption of the ship
+        @param distance: distance units between two coordinate systems
+        @param ship_speed: ship speed
+        @param flight_duration duration of the flight in seconds
+        @return: fuel consumption of the ship
         """
         return base_fuel_consumption * distance / 35000 * (
                 35000 / (flight_duration * self.server_data.fleet_speed - 10)
@@ -197,10 +202,10 @@ class Engine:
                          ship_speed: int,
                          fleet_speed: int = 100) -> int:
         """
-        :param distance: distance units between two coordinate systems
-        :param ship_speed: ship speed
-        :param fleet_speed: fleet speed
-        :return: duration of the flight in seconds
+        @param distance: distance units between two coordinate systems
+        @param ship_speed: ship speed
+        @param fleet_speed: fleet speed
+        @return: duration of the flight in seconds
         """
         return round((35000 / fleet_speed *
                       math.sqrt(distance * 1000 / ship_speed) + 10) / self.server_data.fleet_speed)
