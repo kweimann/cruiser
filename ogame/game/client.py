@@ -214,7 +214,7 @@ class OGame:
         timestamp = int(movement_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
         if not movement_el:
             # when there is no movement the server redirects to fleet dispatch
-            slot_elements = movement_soup.find(id='slots').findAll('div')
+            slot_elements = movement_soup.find(id='slots').findAll('div', recursive=False)
             used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
             used_expedition_slots, max_expedition_slots = extract_numbers(slot_elements[1].text)
             return Movement(fleets=[],

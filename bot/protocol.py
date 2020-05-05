@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict
+from typing import Dict, Union
 
 from ogame.game.const import Ship
 from ogame.game.model import Coordinates, Planet
@@ -17,7 +17,7 @@ class SendExpedition:
     dest: Coordinates
     ships: Dict[Ship, int]
     holding_time: int = 1
-    repeat: bool = None
+    repeat: Union[int, str] = 'forever'
 
 
 @dataclasses.dataclass
@@ -40,7 +40,7 @@ class NotifyEscapeScheduled:
 class NotifyFleetEscaped:
     origin: Planet  # fleet escaped from origin
     hostile_arrival: int  # hostile arrival at origin
-    destination: Planet  # fleet escaped to destination
+    destination: Planet = None  # fleet escaped to destination
     error: str = None
 
 

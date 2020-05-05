@@ -58,7 +58,11 @@ class Engine:
         @param technology: dictionary describing the current technology levels
         @return: duration of the flight in seconds
         """
-        lowest_ship_speed = min([self.ship_speed(ship, technology) for ship, amount in ships.items() if amount > 0])
+        if not any(ships.values()):
+            raise ValueError('Cannot calculate flight duration if there are not ships.')
+        lowest_ship_speed = min([self.ship_speed(ship, technology)
+                                 for ship, amount in ships.items()
+                                 if amount > 0])
         return self._flight_duration(distance=distance,
                                      ship_speed=lowest_ship_speed,
                                      fleet_speed=fleet_speed)
@@ -77,6 +81,8 @@ class Engine:
         @param technology: dictionary describing the current technology levels
         @return: fuel consumption of the entire fleet
         """
+        if not any(ships.values()):
+            raise ValueError('Cannot calculate fuel consumption if there are not ships.')
         total_fuel_consumption = 0
         for ship, amount in ships.items():
             if amount > 0:
@@ -102,6 +108,8 @@ class Engine:
         @param technology: dictionary describing the current technology levels
         @return: cargo capacity of the entire fleet
         """
+        if not any(ships.values()):
+            raise ValueError('Cannot calculate cargo capacity if there are not ships.')
         total_cargo_capacity_factor = 1
         total_cargo_capacity = 0
         if technology is not None:

@@ -7,9 +7,10 @@ from bs4 import BeautifulSoup
 def find_first_between(string, left, right):
     """ Find first string in `string` that is between two strings `left` and `right`. """
     start = string.find(left)
-    end = string.find(right, start + len(left))
-    if start != end != -1:
-        return string[start + len(left):end]
+    if start != -1:
+        end = string.find(right, start + len(left))
+        if end != -1:
+            return string[start + len(left):end]
 
 
 def find_unique(item, iterable, key=None):
