@@ -1,15 +1,16 @@
 import logging
 import sys
-import time
-import traceback
 
 import requests
 
 from bot.protocol import (
     NotifyEscapeScheduled,
     NotifyFleetRecalled,
-    NotifyFleetEscaped
+    NotifyFleetEscaped,
+    NotifyExpeditionFinished,
+    NotifyExpeditionCancelled
 )
+from ogame.util import ftime
 
 
 class Listener:
@@ -24,26 +25,36 @@ class TelegramListener(Listener):
 
     def notify(self, log):
         if isinstance(log, NotifyEscapeScheduled):
-            hostile_arrival = time.ctime(log.hostile_arrival)
-            escape_time = time.ctime(log.escape_time)
-            message = f'Hostile fleet attacking `{log.planet}` on `{hostile_arrival}`. ' \
-                      f'Scheduled escape on `{escape_time}`.'
+            message = f'Hostile fleet attacking `{log.planet}` on `{ftime(log.hostile_arrival)}`. ' \
+                      f'Scheduled escape on `{ftime(log.escape_time)}`.'
         elif isinstance(log, NotifyFleetEscaped):
-            hostile_arrival = time.ctime(log.hostile_arrival)
             if log.error:
                 message = f'Failed to save fleet from an attack on `{log.origin}` ' \
-                          f'on `{hostile_arrival}`: {log.error}'
+                          f'on `{ftime(log.hostile_arrival)}`: `{log.error}`.'
             else:
                 message = f'Fleet escaped from {log.origin} to {log.destination} ' \
-                          f'due to an attack on `{hostile_arrival}`.'
+                          f'due to an attack on `{ftime(log.hostile_arrival)}`.'
         elif isinstance(log, NotifyFleetRecalled):
-            hostile_arrival = time.ctime(log.hostile_arrival)
             if log.error:
                 message = f'Failed to recall fleet back to `{log.origin}` ' \
-                          f'due to attack on `{log.destination}` on `{hostile_arrival}`: `{log.error}`'
+                          f'due to attack on `{log.destination}` on `{ftime(log.hostile_arrival)}`: `{log.error}`.'
             else:
                 message = f'Recalled fleet back to `{log.origin}` ' \
-                          f'due to attack on `{log.destination}` on `{hostile_arrival}`.'
+                          f'due to attack on `{log.destination}` on `{ftime(log.hostile_arrival)}`.'
+        elif isinstance(log, NotifyExpeditionFinished):
+            if log.error:
+                message = f'Expedition from {log.expedition.origin} had to be removed due to an error: `{log.error}`.'
+            else:
+                message = f'Expedition from {log.expedition.origin} finished successfully.'
+        elif isinstance(log, NotifyExpeditionCancelled):
+            if log.cancellation.return_fleet:
+                if log.fleet_returned:
+                    message = f'Expedition from {log.expedition.origin} has been cancelled and the fleet returned.'
+                else:
+                    message = f'Expedition from {log.expedition.origin} has been cancelled' \
+                              f'but the fleet could not be returned.'
+            else:
+                message = f'Expedition from {log.expedition.origin} has been cancelled.'
         else:
             logging.warning(f'Unknown log: {log}')
             message = None
@@ -55,8 +66,7 @@ class TelegramListener(Listener):
         if exc_info is None:
             exc_info = sys.exc_info()
         exc_type, exc_value, tb = exc_info
-        exc_string = ''.join(traceback.format_exception(exc_type, exc_value, tb))
-        message = f'Exception occurred: {exc_type.__name__}: {exc_value}\n{exc_string}'
+        message = f'Exception occurred: {exc_type.__name__}: {exc_value}'
         self._send_message(message)
 
     def _send_message(self, message, **kwargs):
@@ -66,10 +76,12 @@ class TelegramListener(Listener):
                 timeout=5,
                 params={'chat_id': self.chat_id, 'text': message, **kwargs})
             response = response.json()
-            if not response['ok']:
-                logging.error(f'Failed to send telegram message: {response["description"]}')
+            if not response.get('ok'):
+                logging.error(f'Failed to send telegram message: {response.get("description")}')
         except requests.exceptions.RequestException:
             logging.exception('Exception thrown while sending a telegram message.')
+        except ValueError:
+            logging.exception('Exception thrown while parsing the response.')
 
     @staticmethod
     def _escape_markdown_string(string):

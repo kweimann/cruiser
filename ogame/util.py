@@ -54,3 +54,8 @@ def tuple2timestamp(date_tuple):
 def str2int(string):
     """ Safely convert string to int or return None. """
     return int(string) if string else None
+
+
+def ftime(timestamp: int):
+    """ Format time. """
+    return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')

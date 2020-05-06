@@ -1,14 +1,15 @@
 # Cruiser 🚀
-OGame assistant that keeps your galactic empire safe and notifies you about any potential threats.
+OGame assistant that keeps your galactic empire safe, notifies you about any potential threats and automates tedious tasks.
 
 # Features
-* **Smart fleet saving**: Cruiser watches over your account making sure that all your planets (and moons) are protected. Your fleets and resources will be saved in a way that prevents them from being sniped with sensor phalanx and requires minimum fuel consumption.
-* **Telegram notifications**: Cruiser notifies you about any hostile events and the actions it takes to protect you.
+* 🛡️ **Smart fleet saving**: Cruiser watches over your account making sure that all your planets (and moons) are protected. Your fleets and resources will be saved in a way that prevents them from being sniped with sensor phalanx and requires minimum fuel consumption.
+* 🔔 **Telegram notifications**: Cruiser notifies you about any hostile events and the actions it takes to protect you.
+* 🌌 **Auto expeditions**: Cruiser manages expeditions for you so that you will never again need to worry about having free expeditions slots.
 
 # Installation
 * Install Python >=3.7.3
 * Install requirements: `pip install -r requirements.txt`
-* Setup account details in `config.yaml`
+* Adjust bot settings in `config.yaml`
 * Start bot: `python start_bot.py`
 * \[optional\] Setup telegram bot to receive notifications: https://core.telegram.org/bots
 

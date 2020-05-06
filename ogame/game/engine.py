@@ -49,12 +49,12 @@ class Engine:
     def flight_duration(self,
                         distance: int,
                         ships: Dict[Ship, int],
-                        fleet_speed: int = 100,
+                        fleet_speed: int = 10,
                         technology: Dict[Technology, int] = None) -> int:
         """
         @param distance: distance units between two coordinate systems
         @param ships: dictionary describing the size of the fleet
-        @param fleet_speed: fleet speed
+        @param fleet_speed: fleet speed (1-10)
         @param technology: dictionary describing the current technology levels
         @return: duration of the flight in seconds
         """
@@ -65,7 +65,7 @@ class Engine:
                                  if amount > 0])
         return self._flight_duration(distance=distance,
                                      ship_speed=lowest_ship_speed,
-                                     fleet_speed=fleet_speed)
+                                     speed_percentage=10 * fleet_speed)
 
     def fuel_consumption(self,
                          distance: int,
@@ -208,12 +208,12 @@ class Engine:
     def _flight_duration(self,
                          distance: int,
                          ship_speed: int,
-                         fleet_speed: int = 100) -> int:
+                         speed_percentage: int = 100) -> int:
         """
         @param distance: distance units between two coordinate systems
         @param ship_speed: ship speed
-        @param fleet_speed: fleet speed
+        @param speed_percentage: speed percentage
         @return: duration of the flight in seconds
         """
-        return round((35000 / fleet_speed *
+        return round((35000 / speed_percentage *
                       math.sqrt(distance * 1000 / ship_speed) + 10) / self.server_data.fleet_speed)

@@ -1,5 +1,6 @@
 import functools
 import logging
+import time
 from typing import List, Union, Dict
 from urllib.parse import urlparse
 
@@ -58,12 +59,14 @@ def keep_session(*, maxtries=1):
 
 
 class OGame:
-    def __init__(self, universe, username, password, language, request_timeout=10):
+    def __init__(self, universe, username, password, language,
+                 request_timeout=10, delay_between_requests=0):
         self.universe = universe
         self.username = username
         self.password = password
         self.language = language
         self.request_timeout = request_timeout
+        self.delay_between_requests = delay_between_requests
         self._account = None
         self._server = None
         self._session = requests.session()
@@ -74,14 +77,15 @@ class OGame:
                           'Safari/537.36'
         })
         self._server_url = None
+        self._last_request_time = 0
 
     def login(self) -> None:
         php_session_id = self._get_php_session_id()
         if not php_session_id:
             raise ValueError('Invalid credentials.')
-        login_response = self._session.get(
-            'https://lobby.ogame.gameforge.com/api/users/me/loginLink',
-            timeout=self.request_timeout,
+        login_response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/api/users/me/loginLink',
             params={'id': self.account['id'],
                     'server[language]': self.server['language'],
                     'server[number]': self.server['number']})
@@ -91,7 +95,7 @@ class OGame:
         url = login_status['url']
         url_parsed = urlparse(url)
         self._server_url = url_parsed.netloc
-        self._session.get(url, timeout=self.request_timeout)
+        self._request(method='get',  url=url)
 
     def get_research(self) -> Research:
         research_soup = self._get_research()
@@ -427,10 +431,9 @@ class OGame:
                                                                 'ajax': 1})
 
     def _post_fleet_dispatch(self, fleet_dispatch_data):
-        return self._session.request(
+        return self._request(
             method='post',
             url=self._base_game_url,
-            timeout=self.request_timeout,
             params={'page': 'ingame',
                     'component': 'fleetdispatch',
                     'action': 'sendFleet',
@@ -438,15 +441,10 @@ class OGame:
                     'asJson': 1},
             data=fleet_dispatch_data)
 
-    def _get_servers(self):
-        response = requests.get('https://lobby.ogame.gameforge.com/api/servers',
-                                timeout=self.request_timeout)
-        return response.json()
-
     def _get_php_session_id(self):
-        response = self._session.post(
-            'https://lobby.ogame.gameforge.com/api/users',
-            timeout=self.request_timeout,
+        response = self._request(
+            method='post',
+            url='https://lobby.ogame.gameforge.com/api/users',
             data={'kid': '',
                   'language': self.language,
                   'autologin': 'false',
@@ -457,8 +455,8 @@ class OGame:
                 return cookie.value
 
     def _get_accounts(self):
-        response = self._session.get('https://lobby.ogame.gameforge.com/api/users/me/accounts',
-                                     timeout=self.request_timeout)
+        response = self._request(method='get',
+                                 url='https://lobby.ogame.gameforge.com/api/users/me/accounts')
         accounts = response.json()
         if 'error' in accounts:
             raise ValueError(accounts['error'])
@@ -480,10 +478,9 @@ class OGame:
     def _request_game_page(self, method, **kwargs):
         if not self._base_game_url:
             raise NotLoggedInError()
-        response = self._session.request(method=method,
-                                         url=self._base_game_url,
-                                         timeout=self.request_timeout,
-                                         **kwargs)
+        response = self._request(method=method,
+                                 url=self._base_game_url,
+                                 **kwargs)
         soup = parse_html(response)
         ogame_session = soup.find('meta', {'name': 'ogame-session'})
         if not ogame_session:
@@ -494,10 +491,9 @@ class OGame:
     def _request_game_resource(self, method, resource, **kwargs):
         if not self._base_game_url:
             raise NotLoggedInError()
-        response = self._session.request(method=method,
-                                         url=self._base_game_url,
-                                         timeout=self.request_timeout,
-                                         **kwargs)
+        response = self._request(method=method,
+                                 url=self._base_game_url,
+                                 **kwargs)
         soup = parse_html(response)
         # resource can be either a piece of html or json
         #  so a <head> tag in the html means that we landed on the login page
@@ -509,6 +505,21 @@ class OGame:
             return response.json()
         else:
             raise ValueError('unknown resource: ' + str(resource))
+
+    def _request(self, method, url, **kwargs):
+        if self.delay_between_requests:
+            time_end_of_delay = self._last_request_time + self.delay_between_requests
+            now = time.time()
+            if now < time_end_of_delay:
+                time.sleep(time_end_of_delay - now)
+        timeout = kwargs.pop('timeout', self.request_timeout)
+        response = self._session.request(method, url, timeout=timeout, **kwargs)
+        self._last_request_time = time.time()
+        return response
+
+    @staticmethod
+    def _get_servers():
+        return requests.get('https://lobby.ogame.gameforge.com/api/servers').json()
 
     @property
     def _base_game_url(self):

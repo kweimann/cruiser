@@ -50,3 +50,16 @@ class NotifyFleetRecalled:
     destination: Planet  # fleet was flying to destination
     hostile_arrival: int  # hostile arrival at destination
     error: str = None
+
+
+@dataclasses.dataclass
+class NotifyExpeditionFinished:
+    expedition: SendExpedition
+    error: str = None
+
+
+@dataclasses.dataclass
+class NotifyExpeditionCancelled:
+    expedition: SendExpedition
+    cancellation: CancelExpedition
+    fleet_returned: bool

@@ -4,14 +4,17 @@ account:
   password: <password>  # account password
   universe: <universe>  # name of the universe e.g. Uni1
   language: <language>  # server language e.g. en
+
 # listeners for notifications from the bot
 listeners:
   telegram:
     api_token: <API token>  # unique authentication token of the telegram bot; see https://core.telegram.org/bots/api
     chat_id: <chat id>      # id of the chat between you and the bot
+
 # bot settings
 bot:
-  listeners: []             # names of the listeners e.g. telegram
+  listeners: []             # names of the listeners e.g. listeners: [telegram]
+  expeditions: []           # ids of expeditions e.g. expeditions: [<expedition_id>]
 
   sleep_min: 600  # minimum sleep time between two wakeup calls to the bot (default = 10 minutes)
   sleep_max: 900  # maximum sleep time between two wakeup calls to the bot (default = 15 minutes)
@@ -22,4 +25,16 @@ bot:
   min_time_before_attack_to_act: 120  # (default = 2 minutes)
   max_time_before_attack_to_act: 180  # (default = 3 minutes)
 
-  request_timeout: 10       # time to wait on a response from a server (default = 10 seconds)
+  request_timeout: 10                 # time to wait on a response from a server (default = 10 seconds)
+  delay_between_requests: 0.5         # minimum delay between two subsequent requests (default = 0.5 second)
+
+# expedition settings
+expeditions:                                    # expeditions dictionary
+  <expedition_id>:
+    origin: [<system>, <galaxy>, <position>]    # expedition origin e.g. [1, 1, 1]
+    origin_type: <planet|moon>                  # (optional) origin type (default = planet)
+    dest: [<system>, <galaxy>, <position>]      # expedition destination e.g. [1, 1, 16]
+    ships:                                      # ships dictionary
+      <ship_name>: <amount>                     # for <ship_name> see `ogame.game.const.Ship` e.g. small_cargo: 1
+    holding_time: 1                             # (optional) holding time (default = 1 hour)
+    repeat: forever                             # (optional) how many times to repeat (default = forever)
