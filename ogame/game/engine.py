@@ -120,7 +120,10 @@ class Engine:
             total_cargo_capacity_factor = 1 + hyperspace_technology_level * cargo_capacity_factor
         for ship, amount in ships.items():
             if amount > 0:
-                ship_capacity = SHIP[ship]['cargo_capacity']
+                if ship == Ship.espionage_probe:
+                    ship_capacity = self.server_data.probe_cargo
+                else:
+                    ship_capacity = SHIP[ship]['cargo_capacity']
                 total_cargo_capacity += round(ship_capacity * amount * total_cargo_capacity_factor)
         return total_cargo_capacity
 

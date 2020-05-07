@@ -265,12 +265,12 @@ SHIP = {
             Technology.impulse_drive: {
                 'min_level': 6,
                 'base_speed': 4000,
-                'base_fuel_consumption': 1000
+                'base_fuel_consumption': 700
             },
             Technology.hyperspace_drive: {
                 'min_level': 8,
                 'base_speed': 5000,
-                'base_fuel_consumption': 1000
+                'base_fuel_consumption': 700
             }
         },
         'shield_power': 500,
