@@ -33,7 +33,7 @@ expeditions:                                    # expeditions dictionary
   <expedition_id>:
     origin: [<system>, <galaxy>, <position>]    # expedition origin e.g. [1, 1, 1]
     origin_type: <planet|moon>                  # (optional) origin type (default = planet)
-    dest: [<system>, <galaxy>, <position>]      # expedition destination e.g. [1, 1, 16]
+    dest: [<system>, <galaxy>, <position>]      # (optional) expedition destination e.g. [1, 1, 16] (default = [<origin_galaxy>, <origin_system>, 16])
     ships:                                      # ships dictionary
       <ship_name>: <amount>                     # for <ship_name> see `ogame.game.const.Ship` e.g. small_cargo: 1
     holding_time: 1                             # (optional) holding time (default = 1 hour)

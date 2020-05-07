@@ -85,7 +85,7 @@ def load_listener(listener_name, listener_config):
 def load_expedition(expedition_id, expedition_config):
     origin_galaxy, origin_system, origin_position = expedition_config['origin']
     origin_type = CoordsType.from_name(expedition_config.get('origin_type', 'planet'))
-    dest_galaxy, dest_system, dest_position = expedition_config['dest']
+    dest_galaxy, dest_system, dest_position = expedition_config.get('dest', [origin_galaxy, origin_system, 16])
     ships = {Ship.from_name(ship): amount for ship, amount in expedition_config['ships'].items()}
     holding_time = expedition_config.get('holding_time', 1)
     repeat = expedition_config.get('repeat', 'forever')
