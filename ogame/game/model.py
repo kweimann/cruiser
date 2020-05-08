@@ -6,7 +6,8 @@ from ogame.game.const import (
     CoordsType,
     Ship,
     Technology,
-    Resource
+    Resource,
+    CharacterClass
 )
 
 
@@ -46,6 +47,12 @@ class Production:
     start: int
     end: int
     amount: int = 1
+
+
+@dataclasses.dataclass
+class Overview:
+    planets: List[Planet]
+    character_class: CharacterClass = None
 
 
 @dataclasses.dataclass

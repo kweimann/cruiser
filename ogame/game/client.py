@@ -11,7 +11,8 @@ from ogame.game.const import (
     CoordsType,
     Resource,
     Ship,
-    Technology
+    Technology,
+    CharacterClass
 )
 from ogame.game.model import (
     Coordinates,
@@ -23,7 +24,8 @@ from ogame.game.model import (
     Research,
     Resources,
     Movement,
-    FleetDispatch
+    FleetDispatch,
+    Overview
 )
 from ogame.util import (
     join_digits,
@@ -152,10 +154,18 @@ class OGame:
                    Resource.deuterium: storage('deuterium')}
         return Resources(amount=amounts, storage=storage)
 
-    def get_planets(self) -> List[Planet]:
+    def get_overview(self) -> Overview:
         overview_soup = self._get_overview()
         planet_list = overview_soup.find(id='planetList')
         smallplanets = planet_list.findAll(class_='smallplanet')
+        character_class_el = overview_soup.find(id='characterclass').find('div')
+        character_class = None
+        if 'miner' in character_class_el['class']:
+            character_class = CharacterClass.collector
+        elif 'warrior' in character_class_el['class']:
+            character_class = CharacterClass.general
+        elif 'explorer' in character_class_el['class']:
+            character_class = CharacterClass.discoverer
         planets = []
         for planet_div in smallplanets:
             planet_id = abs(join_digits(planet_div['id']))
@@ -177,7 +187,7 @@ class OGame:
                               name=moon_name,
                               coords=moon_coords)
                 planets.append(moon)
-        return planets
+        return Overview(planets=planets, character_class=character_class)
 
     def get_events(self) -> List[FleetEvent]:
         event_list = self._get_event_list()

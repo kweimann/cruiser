@@ -36,7 +36,8 @@ from ogame.game.model import (
     CoordsType,
     FleetMovement,
     Movement,
-    Research
+    Research,
+    Overview
 )
 from ogame.util import ftime
 
@@ -52,17 +53,17 @@ class GameState:
     Currently cache must be invalidating after sending a fleet. """
     def __init__(self, client: OGame):
         self.client = client
-        self._planets = None
+        self._overview = None
         self._events = None
         self._movement = None
         self._research = None
 
-    def get_planets(self, invalidate_cache: bool = False) -> List[Planet]:
-        """ Get planets from overview page. This method should be called
+    def get_overview(self, invalidate_cache: bool = False) -> Overview:
+        """ Get overview from the landing page. This method should be called
         first when accessing different state variables. """
-        if self._planets is None or invalidate_cache:
-            self._planets = self.client.get_planets()
-        return self._planets
+        if self._overview is None or invalidate_cache:
+            self._overview = self.client.get_overview()
+        return self._overview
 
     def get_events(self, invalidate_cache: bool = False) -> List[FleetEvent]:
         """ Get events by requesting event list. """
@@ -177,8 +178,14 @@ class OGameBot:
                 return
         try:
             state = GameState(self.client)
+            # Always get the latest overview.
+            overview = state.get_overview()
+            # Update the character class in the engine.
+            self._engine.character_class = overview.character_class
+            # Proceed with doing work.
             self._handle_hostile_events(state)
             self._handle_expeditions(state)
+            # No exception has been thrown, so reset the exception count.
             self._exc_count = 0
         except Exception:
             retry_delay_index = min(self._exc_count, len(self._exc_retry_delays) - 1)
@@ -193,12 +200,12 @@ class OGameBot:
 
     def _handle_hostile_events(self, state: GameState):
         exception_raised = False
-        planets = state.get_planets()
+        overview = state.get_overview()
         events = state.get_events()
-        earliest_hostile_events = get_earliest_hostile_events(events, planets)
+        earliest_hostile_events = get_earliest_hostile_events(events, overview.planets)
         # Log fleet events.
         if events:
-            logging.debug(f'Fleet events:\n{format_fleet_events(events, planets)}')
+            logging.debug(f'Fleet events:\n{format_fleet_events(events, overview.planets)}')
             if not earliest_hostile_events:
                 logging.info('No hostile fleets on sight. Your planets are safe.')
         else:
@@ -242,7 +249,7 @@ class OGameBot:
                             escape_flights = get_escape_flights(
                                 engine=self._engine,
                                 origin=planet,
-                                destinations=planets,
+                                destinations=overview.planets,
                                 ships=fleet_dispatch.ships,
                                 technology=technology)
                             # Why destinations under attack where the hostile fleets arrive
@@ -260,7 +267,9 @@ class OGameBot:
                             cheapest_escape_flight = get_cheapest_flight(escape_flights)
                             if cheapest_escape_flight:
                                 # Store destination in the log.
-                                fleet_escaped_log.destination = match_planet(cheapest_escape_flight.dest, planets)
+                                fleet_escaped_log.destination = match_planet(
+                                    coords=cheapest_escape_flight.dest,
+                                    planets=overview.planets)
                                 # Make sure there is enough fuel to send the fleet.
                                 deuterium = resources[Resource.deuterium]
                                 if deuterium >= cheapest_escape_flight.fuel_consumption:
@@ -319,7 +328,7 @@ class OGameBot:
                     movement = state.get_movement()
                     deployment_fleets = find_fleets(
                         fleets=movement.fleets,
-                        origin=planets,
+                        origin=overview.planets,
                         dest=planet,
                         mission=Mission.deployment)
                     for fleet in deployment_fleets:
@@ -333,8 +342,8 @@ class OGameBot:
                             # Make sure that fleet was sent.
                             fleet = find_fleets(movement.fleets, id=fleet.id)
                             fleet_recalled_log = NotifyFleetRecalled(
-                                origin=match_planet(fleet.origin, planets),
-                                destination=match_planet(fleet.dest, planets),
+                                origin=match_planet(fleet.origin, overview.planets),
+                                destination=match_planet(fleet.dest, overview.planets),
                                 hostile_arrival=earliest_hostile_arrival)
                             if fleet.return_flight:
                                 logging.info(f'Recalling fleet {fleet.id} was successful.')
@@ -352,7 +361,7 @@ class OGameBot:
             raise ValueError('Exceptions occurred during event handling.')
 
     def _handle_expeditions(self, state: GameState):
-        planets = state.get_planets()
+        overview = state.get_overview()
         events = state.get_events()
         movement = state.get_movement()
         # Find finished expeditions based on the current movement.
@@ -394,7 +403,7 @@ class OGameBot:
                 # Expedition has finished but repeat it.
                 expedition.fleet_id = None
         # Find any hostile events. They will be considered when sending new expeditions.
-        earliest_hostile_events = get_earliest_hostile_events(events, planets)
+        earliest_hostile_events = get_earliest_hostile_events(events, overview.planets)
         # Try running as many new expeditions as possible.
         for expedition in list(self._expeditions.values()):  # iterate over a copy to allow mutation of dict
             if expedition.running:
@@ -402,7 +411,7 @@ class OGameBot:
             if movement.free_fleet_slots == 0 or movement.free_expedition_slots == 0:
                 logging.warning(f'No free slots for expeditions.')
                 break
-            planet = match_planet(expedition.data.origin, planets)
+            planet = match_planet(expedition.data.origin, overview.planets)
             if not planet:
                 # Expedition is invalid because of wrong origin (not one of user's planets).
                 self._expeditions.pop(expedition.data.id)
