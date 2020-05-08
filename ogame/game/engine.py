@@ -250,10 +250,11 @@ class Engine:
         @param pathfinder_in_fleet: whether a pathfinder is in the fleet
         @return: expedition loot boost
         """
-        class_bonus = 0
-        if self.server_data.character_classes_enabled and self.character_class == CharacterClass.discoverer:
-            class_bonus = self.server_data.explorer_bonus_increased_expedition_outcome
-        loot_boost = (EXPEDITION_BASE_LOOT + class_bonus) * self.server_data.speed
+        loot_boost = EXPEDITION_BASE_LOOT
+        if self.server_data.character_classes_enabled:
+            if self.character_class == CharacterClass.discoverer:
+                class_bonus = self.server_data.explorer_bonus_increased_expedition_outcome
+                loot_boost = (EXPEDITION_BASE_LOOT + class_bonus) * self.server_data.speed
         if pathfinder_in_fleet:
             loot_boost = EXPEDITION_PATHFINDER_BONUS * loot_boost
         return loot_boost
@@ -283,15 +284,16 @@ class Engine:
         @return: bonus ship speed from the character class
         """
         class_bonus = 0
-        base_speed = SHIP_DATA[ship].drives[drive_technology].speed
-        if self.character_class == CharacterClass.general:
-            if SHIP_DATA[ship].is_military:
-                class_bonus = int(base_speed * self.server_data.warrior_bonus_faster_combat_ships)
-            elif ship == Ship.recycler:
-                class_bonus = int(base_speed * self.server_data.warrior_bonus_faster_recyclers)
-        elif self.character_class == CharacterClass.collector:
-            if ship == Ship.small_cargo or ship == ship.large_cargo:
-                class_bonus = int(base_speed * self.server_data.miner_bonus_faster_trading_ships)
+        if self.server_data.character_classes_enabled:
+            base_speed = SHIP_DATA[ship].drives[drive_technology].speed
+            if self.character_class == CharacterClass.general:
+                if SHIP_DATA[ship].is_military:
+                    class_bonus = int(base_speed * self.server_data.warrior_bonus_faster_combat_ships)
+                elif ship == Ship.recycler:
+                    class_bonus = int(base_speed * self.server_data.warrior_bonus_faster_recyclers)
+            elif self.character_class == CharacterClass.collector:
+                if ship == Ship.small_cargo or ship == ship.large_cargo:
+                    class_bonus = int(base_speed * self.server_data.miner_bonus_faster_trading_ships)
         return class_bonus
 
     @staticmethod
@@ -376,10 +378,11 @@ class Engine:
         """
         base_capacity = SHIP_DATA[ship].capacity
         class_bonus = 0
-        if self.character_class == CharacterClass.collector:
-            if ship == Ship.small_cargo or ship == Ship.large_cargo:
-                capacity_factor = self.server_data.miner_bonus_increased_cargo_capacity_for_trading_ships
-                class_bonus = int(base_capacity * capacity_factor)
+        if self.server_data.character_classes_enabled:
+            if self.character_class == CharacterClass.collector:
+                if ship == Ship.small_cargo or ship == Ship.large_cargo:
+                    capacity_factor = self.server_data.miner_bonus_increased_cargo_capacity_for_trading_ships
+                    class_bonus = int(base_capacity * capacity_factor)
         return class_bonus
 
     def _hst_bonus_capacity(self,
@@ -399,6 +402,7 @@ class Engine:
     @property
     def _deuterium_save_factor(self) -> float:
         save_factor = self.server_data.global_deuterium_save_factor
-        if self.character_class == CharacterClass.general:
-            save_factor = GENERAL_FUEL_CONSUMPTION_FACTOR * save_factor
+        if self.server_data.character_classes_enabled:
+            if self.character_class == CharacterClass.general:
+                save_factor = GENERAL_FUEL_CONSUMPTION_FACTOR * save_factor
         return save_factor
