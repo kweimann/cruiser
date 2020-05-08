@@ -66,9 +66,9 @@ class Resource(IdEnum):
 
 @enum.unique
 class CharacterClass(IdEnum):
-    miner = 1
-    warrior = 2
-    explorer = 3
+    collector = 1
+    general = 2
+    discoverer = 3
 
 
 @enum.unique
@@ -107,3 +107,46 @@ class HighscoreType(IdEnum):
     military_built = 5
     military_destroyed = 6
     honor = 7
+
+
+@enum.unique
+class Supply(IdEnum):
+    metal_mine = 1
+    metal_storage = 22
+    crystal_mine = 2
+    crystal_storage = 23
+    deuterium_synthesizer = 3
+    deuterium_tank = 24
+    solar_plant = 4
+    fusion_reactor = 12
+    solar_satellite = 212
+    crawler = 217
+
+
+@enum.unique
+class Facility(IdEnum):
+    robotics_factory = 14
+    nanite_factory = 15
+    shipyard = 21
+    space_dock = 36
+    missile_silo = 44
+    research_lab = 31
+    alliance_depot = 34
+    terraformer = 33
+    lunar_base = 41
+    sensor_phalanx = 42
+    jump_gate = 43
+
+
+@enum.unique
+class Defense(IdEnum):
+    rocket_launcher = 401
+    light_laser = 402
+    heavy_laser = 403
+    ion_cannon = 405
+    gauss_cannon = 404
+    plasma_turret = 406
+    small_shield_dome = 407
+    large_shield_dome = 408
+    anti_ballistic_missile = 502
+    interplanetary_missile = 503
