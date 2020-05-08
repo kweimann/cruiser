@@ -24,6 +24,7 @@ class ShipData:
     shield_power: int
     weapon_power: int
     capacity: int
+    is_military: bool
 
     @property
     def structural_integrity(self):
@@ -40,25 +41,12 @@ EXPEDITION_MAX_FACTOR = 200
 GENERAL_FUEL_CONSUMPTION_FACTOR = 0.75
 
 
-DRIVE = {Technology.combustion_drive: 0.1,
-         Technology.impulse_drive: 0.2,
-         Technology.hyperspace_drive: 0.3}
+DRIVE_FACTOR = {Technology.combustion_drive: 0.1,
+                Technology.impulse_drive: 0.2,
+                Technology.hyperspace_drive: 0.3}
 
 
-MILITARY_SHIPS = [
-    Ship.light_fighter,
-    Ship.heavy_fighter,
-    Ship.cruiser,
-    Ship.battleship,
-    Ship.battlecruiser,
-    Ship.bomber,
-    Ship.destroyer,
-    Ship.deathstar,
-    Ship.reaper,
-    Ship.pathfinder
-]
-
-SHIP = {
+SHIP_DATA = {
     Ship.small_cargo:
         ShipData(
             cost={Resource.metal: 2000,
@@ -76,7 +64,8 @@ SHIP = {
                     min_level=5)},
             shield_power=10,
             weapon_power=5,
-            capacity=5000),
+            capacity=5000,
+            is_military=False),
 
     Ship.large_cargo:
         ShipData(
@@ -91,7 +80,8 @@ SHIP = {
                     min_level=6)},
             shield_power=25,
             weapon_power=5,
-            capacity=25000),
+            capacity=25000,
+            is_military=False),
 
     Ship.light_fighter:
         ShipData(
@@ -106,7 +96,8 @@ SHIP = {
                     min_level=1)},
             shield_power=10,
             weapon_power=50,
-            capacity=50),
+            capacity=50,
+            is_military=True),
 
     Ship.heavy_fighter:
         ShipData(
@@ -122,7 +113,8 @@ SHIP = {
                     min_level=2)},
             shield_power=25,
             weapon_power=150,
-            capacity=100),
+            capacity=100,
+            is_military=True),
 
     Ship.cruiser:
         ShipData(
@@ -139,7 +131,8 @@ SHIP = {
                     min_level=4)},
             shield_power=50,
             weapon_power=400,
-            capacity=800),
+            capacity=800,
+            is_military=True),
 
     Ship.battleship:
         ShipData(
@@ -154,7 +147,8 @@ SHIP = {
                     min_level=4)},
             shield_power=200,
             weapon_power=1000,
-            capacity=1500),
+            capacity=1500,
+            is_military=True),
 
     Ship.battlecruiser:
         ShipData(
@@ -172,7 +166,8 @@ SHIP = {
                     min_level=5)},
             shield_power=400,
             weapon_power=700,
-            capacity=750),
+            capacity=750,
+            is_military=True),
 
     Ship.destroyer:
         ShipData(
@@ -189,7 +184,8 @@ SHIP = {
                     min_level=6)},
             shield_power=500,
             weapon_power=2000,
-            capacity=2000),
+            capacity=2000,
+            is_military=True),
 
     Ship.deathstar:
         ShipData(
@@ -207,7 +203,8 @@ SHIP = {
                     min_level=7)},
             shield_power=50000,
             weapon_power=200000,
-            capacity=1000000),
+            capacity=1000000,
+            is_military=True),
 
     Ship.bomber:
         ShipData(
@@ -228,7 +225,8 @@ SHIP = {
                     min_level=8)},
             shield_power=500,
             weapon_power=1000,
-            capacity=500),
+            capacity=500,
+            is_military=True),
 
     Ship.recycler:
         ShipData(
@@ -253,7 +251,8 @@ SHIP = {
                     min_level=15)},
             shield_power=10,
             weapon_power=1,
-            capacity=20000),
+            capacity=20000,
+            is_military=False),
 
     Ship.espionage_probe:
         ShipData(
@@ -268,7 +267,8 @@ SHIP = {
                     min_level=3)},
             shield_power=0,
             weapon_power=0,
-            capacity=5),
+            capacity=5,
+            is_military=False),
 
     Ship.colony_ship:
         ShipData(
@@ -284,7 +284,8 @@ SHIP = {
                     min_level=3)},
             shield_power=100,
             weapon_power=50,
-            capacity=7500),
+            capacity=7500,
+            is_military=False),
 
     Ship.reaper:
         ShipData(
@@ -302,7 +303,8 @@ SHIP = {
                     min_level=7)},
             shield_power=700,
             weapon_power=2800,
-            capacity=10000),
+            capacity=10000,
+            is_military=True),
 
     Ship.pathfinder:
         ShipData(
@@ -319,5 +321,6 @@ SHIP = {
                     min_level=2)},
             shield_power=100,
             weapon_power=200,
-            capacity=10000),
+            capacity=10000,
+            is_military=True),
 }
