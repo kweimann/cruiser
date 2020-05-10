@@ -108,6 +108,18 @@ class OGameAPI:
         return {'timestamp': timestamp,
                 'highscores': highscores}
 
+    def get_localization(self):
+        def parse_names(names):
+            return {name['#text']: int(name['@id']) for name in names}
+
+        localization_dict = self._get_endpoint('localization')
+        timestamp = int(localization_dict['@timestamp'])
+        technologies = parse_names(localization_dict['techs']['name'])
+        missions = parse_names(localization_dict['missions']['name'])
+        return {'timestamp': timestamp,
+                'technologies': technologies,
+                'missions': missions}
+
     def get_server_data(self):
         def parse_server_data(server_data_dict):
             return ServerData(
