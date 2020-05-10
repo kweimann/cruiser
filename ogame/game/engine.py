@@ -14,6 +14,7 @@ from ogame.game.data import (
     DRIVE_FACTOR,
     EXPEDITION_BASE_LOOT,
     EXPEDITION_PATHFINDER_BONUS,
+    EXPEDITION_MIN_FACTOR,
     EXPEDITION_MAX_FACTOR,
     GENERAL_FUEL_CONSUMPTION_FACTOR
 )
@@ -109,14 +110,13 @@ class Engine:
                     distance=distance,
                     ship_speed=ship_speed_,
                     flight_duration=flight_duration)
-                ship_holding_consumption = self._holding_fuel_consumption(
-                    base_fuel_consumption=base_fuel_consumption,
-                    holding_time=holding_time)
                 flight_fuel_consumption += amount * ship_fuel_consumption
-                holding_fuel_consumption += amount * ship_holding_consumption
-        flight_fuel_consumption = round(flight_fuel_consumption) + 1
-        holding_fuel_consumption = round(holding_fuel_consumption) + 1
-        total_fuel_consumption = flight_fuel_consumption + holding_fuel_consumption
+                if holding_time:
+                    ship_holding_consumption = self._holding_fuel_consumption(
+                        base_fuel_consumption=base_fuel_consumption,
+                        holding_time=holding_time)
+                    holding_fuel_consumption += amount * ship_holding_consumption
+        total_fuel_consumption = round(flight_fuel_consumption + holding_fuel_consumption) + 1
         return total_fuel_consumption
 
     def cargo_capacity(self,
@@ -168,37 +168,23 @@ class Engine:
         speed = base_speed + drive_bonus + class_bonus
         return speed
 
-    def max_expedition_find(self,
-                            ships: Dict[Ship, int] = None,
-                            resource: Resource = Resource.metal,
-                            pathfinder_in_fleet: bool = None) -> int:
+    def expedition_find_with_fleet(self,
+                                   ships: Dict[Ship, int],
+                                   expedition_factor: int = EXPEDITION_MAX_FACTOR,
+                                   resource: Resource = Resource.metal) -> int:
         """
         @param ships: dictionary describing the size of the fleet
+        @param expedition_factor: expedition factor (10-200) (by default maximum)
         @param resource: type of find
-        @param pathfinder_in_fleet: whether a pathfinder is in the fleet
-        @return: maximal possible expedition find
+        @return: expedition find given the parameters
         """
-        if ships:
-            expedition_points = self.expedition_points(ships)
-            if pathfinder_in_fleet is None:
-                pathfinder_in_fleet = ships.get(Ship.pathfinder, 0) > 0
-        else:
-            expedition_points = self.max_expedition_points
-            pathfinder_in_fleet = pathfinder_in_fleet or False
-        max_find = self._expedition_find(
+        expedition_points = self.expedition_points(ships)
+        pathfinder_in_fleet = ships.get(Ship.pathfinder, 0) > 0
+        return self.expedition_find(
             expedition_points=expedition_points,
-            expedition_factor=EXPEDITION_MAX_FACTOR,
-            pathfinder_in_fleet=pathfinder_in_fleet)
-        if resource == Resource.metal:
-            return max_find
-        elif resource == Resource.crystal:
-            return max_find // 2
-        elif resource == Resource.deuterium:
-            return max_find // 3
-        elif resource == Resource.dark_matter:
-            return 1800
-        else:
-            raise ValueError(f'resource cannot be found: {resource}')
+            expedition_factor=expedition_factor,
+            pathfinder_in_fleet=pathfinder_in_fleet,
+            resource=resource)
 
     def expedition_points(self, ships: Union[Ship, Dict[Ship, int]]) -> int:
         """
@@ -211,6 +197,42 @@ class Engine:
         for ship, amount in ships.items():
             total_structural_integrity += amount * SHIP_DATA[ship].structural_integrity
         return min(5 * total_structural_integrity // 1000, self.max_expedition_points)
+
+    def max_expedition_find(self,
+                            pathfinder_in_fleet: bool = False,
+                            resource: Resource = Resource.metal) -> int:
+        """
+        @param pathfinder_in_fleet: whether a pathfinder is in the fleet
+        @param resource: type of find
+        @return: maximal possible expedition find
+        """
+        return self.expedition_find(
+            expedition_points=self.max_expedition_points,
+            expedition_factor=EXPEDITION_MAX_FACTOR,
+            pathfinder_in_fleet=pathfinder_in_fleet,
+            resource=resource)
+
+    def expedition_find(self,
+                        expedition_points: int,
+                        expedition_factor: int,
+                        pathfinder_in_fleet: bool = False,
+                        resource: Resource = Resource.metal) -> int:
+        """
+        @param expedition_points: number of expedition points
+        @param pathfinder_in_fleet: whether a pathfinder is in the fleet
+        @param expedition_factor: expedition factor increases the find
+        @param resource: type of find
+        @return: maximal expedition find given the expedition points and current top 1 score
+        """
+        if not (EXPEDITION_MIN_FACTOR <= expedition_factor <= EXPEDITION_MAX_FACTOR):
+            raise ValueError(f'expedition factor must be a number '
+                             f'between {EXPEDITION_MIN_FACTOR}-{EXPEDITION_MAX_FACTOR}')
+        expedition_points = min(expedition_points, self.max_expedition_points)
+        loot_boost = self._expedition_loot_boost(pathfinder_in_fleet=pathfinder_in_fleet)
+        find = int(loot_boost * expedition_points * expedition_factor)
+        return self._expedition_find_as_resource(
+            expedition_find=find,
+            resource=resource)
 
     @property
     def max_expedition_points(self) -> int:
@@ -232,19 +254,6 @@ class Engine:
         else:
             return 25000
 
-    def _expedition_find(self,
-                         expedition_points: int,
-                         expedition_factor: int,
-                         pathfinder_in_fleet: bool = False) -> int:
-        """
-        @param expedition_points: number of expedition points
-        @param pathfinder_in_fleet: whether a pathfinder is in the fleet
-        @return: maximal expedition find (metal) given the expedition points and current top 1 score
-        """
-        expedition_points = min(expedition_points, self.max_expedition_points)
-        loot_boost = self._expedition_loot_boost(pathfinder_in_fleet=pathfinder_in_fleet)
-        return int(loot_boost * expedition_points * expedition_factor)
-
     def _expedition_loot_boost(self, pathfinder_in_fleet: bool = False) -> float:
         """
         @param pathfinder_in_fleet: whether a pathfinder is in the fleet
@@ -258,6 +267,25 @@ class Engine:
         if pathfinder_in_fleet:
             loot_boost = EXPEDITION_PATHFINDER_BONUS * loot_boost
         return loot_boost
+
+    @staticmethod
+    def _expedition_find_as_resource(expedition_find: int,
+                                     resource: Resource) -> int:
+        """
+        @param expedition_find: expedition find (metal)
+        @param resource: type of find
+        @return: expedition find converted to the provided resource
+        """
+        if resource == Resource.metal:
+            return expedition_find
+        elif resource == Resource.crystal:
+            return expedition_find // 2
+        elif resource == Resource.deuterium:
+            return expedition_find // 3
+        elif resource == Resource.dark_matter:
+            return 1800
+        else:
+            raise ValueError(f'cannot convert expedition find to {resource}')
 
     @staticmethod
     def _drive_bonus_ship_speed(ship: Ship,
@@ -360,14 +388,11 @@ class Engine:
         @param hst_level: hyperspace technology level
         @return: total capacity of a ship
         """
-        if ship == Ship.espionage_probe:
-            base_capacity = self.server_data.probe_cargo
-        else:
-            base_capacity = SHIP_DATA[ship].capacity
+        base_capacity = self._base_capacity(ship)
         hst_bonus = self._hst_bonus_capacity(
             ship=ship,
             hst_level=hst_level)
-        class_bonus = self._class_bonus_capacity(ship=ship)
+        class_bonus = self._class_bonus_capacity(ship)
         total_capacity = base_capacity + hst_bonus + class_bonus
         return total_capacity
 
@@ -376,8 +401,8 @@ class Engine:
         @param ship: ship
         @return: bonus capacity from character class
         """
-        base_capacity = SHIP_DATA[ship].capacity
         class_bonus = 0
+        base_capacity = self._base_capacity(ship)
         if self.server_data.character_classes_enabled:
             if self.character_class == CharacterClass.collector:
                 if ship == Ship.small_cargo or ship == Ship.large_cargo:
@@ -393,16 +418,29 @@ class Engine:
         @param hst_level: hyperspace technology level
         @return: bonus capacity from hyperspace technology
         """
-        base_capacity = SHIP_DATA[ship].capacity
         hst_level = hst_level or 0
+        base_capacity = self._base_capacity(ship)
         hst_factor = self.server_data.cargo_hyperspace_tech_percentage / 100
-        hst_bonus = int(base_capacity * hst_factor) * hst_level
+        hst_bonus = int(base_capacity * hst_factor * hst_level)
         return hst_bonus
 
     @property
     def _deuterium_save_factor(self) -> float:
+        """
+        @return: global deuterium save factor
+        """
         save_factor = self.server_data.global_deuterium_save_factor
         if self.server_data.character_classes_enabled:
             if self.character_class == CharacterClass.general:
                 save_factor = GENERAL_FUEL_CONSUMPTION_FACTOR * save_factor
         return save_factor
+
+    def _base_capacity(self, ship: Ship) -> int:
+        """
+        @param ship: ship
+        @return: base capacity of the ship
+        """
+        if ship == Ship.espionage_probe:
+            return self.server_data.probe_cargo
+        else:
+            return SHIP_DATA[ship].capacity
