@@ -26,7 +26,7 @@ bot:
   max_time_before_attack_to_act: 180  # (default = 3 minutes)
 
   request_timeout: 10                 # time to wait on a response from a server (default = 10 seconds)
-  delay_between_requests: 0.5         # minimum delay between two subsequent requests (default = 0.5 second)
+  delay_between_requests: 0           # minimum delay between two subsequent requests (default = no delay)
 
 # expedition settings
 expeditions:                                    # expeditions dictionary

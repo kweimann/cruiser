@@ -293,7 +293,7 @@ class OGameBot:
                                     # Invalidate cache because the game state was altered by sending the fleet.
                                     movement = state.get_movement(invalidate_cache=True)
                                     # Look for the corresponding fleet event to make sure the fleet was sent.
-                                    fleets = find_fleets(
+                                    fleets = find_fleets(  # TODO match ships and cargo as well
                                         fleets=movement.fleets,
                                         origin=planet,
                                         dest=cheapest_escape_flight.dest,
@@ -402,12 +402,45 @@ class OGameBot:
             else:
                 # Expedition has finished but repeat it.
                 expedition.fleet_id = None
+
+        # After cleaning up the expeditions, the only ones that are left at this point
+        #  are expeditions that are either running or scheduled to run next. Therefore,
+        #  this is the perfect time to find any unassigned expeditions from the fleet
+        #  movement and attempt to match it with an expedition that is scheduled to run.
+        #
+        # Look for any unassigned expedition fleets i.e. currently flying expeditions fleets
+        #  that are not matched with any expedition event that the bot received. This could be caused
+        #  by the user sending an expedition, or by some failure that prevented the bot from matching
+        #  an expedition fleet after sending it with the corresponding expedition event.
+        def get_unassigned_expedition_fleets(fleets, expeditions):
+            assigned_fleet_ids = [expedition.fleet_id for expedition in expeditions if expedition.running]
+            return [fleet for fleet in fleets
+                    if fleet.mission == Mission.expedition
+                    and fleet.id not in assigned_fleet_ids]
+
         # Find any hostile events. They will be considered when sending new expeditions.
         earliest_hostile_events = get_earliest_hostile_events(events, overview.planets)
         # Try running as many new expeditions as possible.
         for expedition in list(self._expeditions.values()):  # iterate over a copy to allow mutation of dict
             if expedition.running:
+                continue  # expedition is already running so we don't have to do anything
+            # Attempt to match this expedition event with any unassigned expedition fleet.
+            unassigned_expedition_fleets = get_unassigned_expedition_fleets(
+                fleets=movement.fleets,
+                expeditions=self._expeditions.values())
+            matched_unassigned_expedition_fleet = find_fleets(
+                fleets=unassigned_expedition_fleets,
+                origin=expedition.data.origin,
+                dest=expedition.data.dest,
+                mission=Mission.expedition,
+                ships=expedition.data.ships,
+            )
+            if matched_unassigned_expedition_fleet:
+                expedition_fleet = matched_unassigned_expedition_fleet[0]
+                expedition.fleet_id = expedition_fleet.id
+                logging.info(f'Expedition has been matched with a fleet: {expedition.data}')
                 continue
+            # Make sure there are enough slots to send the expedition fleet.
             if movement.free_fleet_slots == 0 or movement.free_expedition_slots == 0:
                 logging.warning(f'No free slots for expeditions.')
                 break
@@ -444,14 +477,8 @@ class OGameBot:
                 logging.warning(f'The required ships are not available. Postponing expedition: {expedition.data}')
                 continue
             # Send fleet for expeditions. If an exception is thrown by either `send_fleet`
-            #  or `get_movement` then this expedition will not be tracked - bot will
-            #  assume that it has to be sent again. For now, we assume such failure is a very
-            #  rare occurrence and we ignore it. The only downside of not tracking an expedition is that an
-            #  additional expedition with the same configuration is sent.
-            #
-            #  A potential solution would be to remember about the failure, save all available information
-            #  regarding the expedition and fleet, then attempt to match it with fleet movement
-            #  once the bot recovers from failure.
+            #  or `get_movement` then this expedition will not be tracked at first - bot will
+            #  assume that it has to be sent again unless it is matched against an unassigned expedition.
             self.client.send_fleet(
                 origin=planet,
                 dest=expedition.data.dest,
@@ -462,11 +489,15 @@ class OGameBot:
             # Invalidate cache because the game state was altered by sending the fleet.
             movement = state.get_movement(invalidate_cache=True)
             # Look for the corresponding fleet event to make sure the fleet was sent.
-            fleets = find_fleets(
+            unassigned_expedition_fleets = get_unassigned_expedition_fleets(
                 fleets=movement.fleets,
+                expeditions=self._expeditions.values())
+            fleets = find_fleets(
+                fleets=unassigned_expedition_fleets,
                 origin=planet,
                 dest=expedition.data.dest,
                 mission=Mission.expedition,
+                ships=expedition.data.ships,
                 departs_before=movement.timestamp + 1,
                 departs_after=fleet_dispatch.timestamp - 1)
             if len(fleets) == 0:
@@ -479,6 +510,7 @@ class OGameBot:
             elif len(fleets) == 1:
                 if expedition.data.repeat != 'forever':
                     expedition.data.repeat -= 1
+                # Assign fleet to the expedition.
                 expedition.fleet_id = fleets[0].id
                 logging.info(f'Expedition sent: {expedition.data}')
             else:
@@ -558,6 +590,8 @@ def find_fleets(fleets: List[Union[FleetEvent, FleetMovement]],
                 origin: Union[Planet, Coordinates, List[Union[Planet, Coordinates]]] = None,
                 dest: Union[Planet, Coordinates, List[Union[Planet, Coordinates]]] = None,
                 mission: Union[Mission, List[Mission]] = None,
+                ships: Dict[Ship, int] = None,
+                cargo: Dict[Resource, int] = None,
                 arrival_time: int = None,
                 arrives_before: int = None,
                 arrives_after: int = None,
@@ -582,6 +616,8 @@ def find_fleets(fleets: List[Union[FleetEvent, FleetMovement]],
             if (not origin or fleet.origin in origin)
             and (not dest or fleet.dest in dest)
             and (not mission or fleet.mission in mission)
+            and (not ships or remove_empty_values(fleet.ships, empty=0) == remove_empty_values(ships, empty=0))
+            and (not cargo or remove_empty_values(fleet.cargo, empty=0) == remove_empty_values(cargo, empty=0))
             and (not arrival_time or fleet.arrival_time == arrival_time)
             and (not arrives_before or fleet.arrival_time < arrives_before)
             and (not arrives_after or fleet.arrival_time > arrives_after)
@@ -624,6 +660,10 @@ def enough_ships(available_ships: Dict[Ship, int],
                  required_ships: Dict[Ship, int]) -> bool:
     """ Check whether there are enough ships. """
     return all(amount <= available_ships.get(ship, 0) for ship, amount in required_ships.items())
+
+
+def remove_empty_values(dictionary, empty):
+    return {k: v for k, v in dictionary.items() if v != empty}
 
 
 def match_planet(coords: Coordinates, planets: List[Planet]) -> Planet:

@@ -78,7 +78,7 @@ class OGame:
         self.server_number = server_number
         self.request_timeout = request_timeout
         self.delay_between_requests = delay_between_requests
-        self._account = None
+
         self._session = requests.session()
         self._session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -86,9 +86,11 @@ class OGame:
                           'Chrome/73.0.3683.103 '
                           'Safari/537.36'
         })
+
+        self._account = None
         self._server_url = None
-        self._last_request_time = 0
         self._tech_dictionary = None
+        self._last_request_time = 0
 
     @property
     def api(self):
@@ -110,7 +112,7 @@ class OGame:
         login_response = self._request(
             method='get',
             url='https://lobby.ogame.gameforge.com/api/users/me/loginLink',
-            no_delay=True,
+            delay=0,
             params={'id': self._account['id'],
                     'server[language]': self.language,
                     'server[number]': self.server_number})
@@ -124,15 +126,16 @@ class OGame:
         self._request(
             method='get',
             url=login_url,
-            no_delay=True)
+            delay=0)
         # Initialize tech dictionary from the API. It is used for
         #  translating ship names while parsing the movement page.
         #  Note that we assume that the dictionary won't change.
         if self._tech_dictionary is None:
             self._tech_dictionary = self.api.get_localization()['technologies']
 
-    def get_research(self) -> Research:
-        research_soup = self._get_research()
+    def get_research(self,
+                     delay: int = None) -> Research:
+        research_soup = self._get_research(delay=delay)
         technologies_el = research_soup.find(id='technologies')
         technologies = {}
         production = None
@@ -151,8 +154,10 @@ class OGame:
                 production = Production(o=technology, start=start, end=end)
         return Research(technology=technologies, production=production)
 
-    def get_shipyard(self, planet: Union[Planet, int]) -> Shipyard:
-        shipyard_soup = self._get_shipyard(planet)
+    def get_shipyard(self,
+                     planet: Union[Planet, int],
+                     delay: int = None) -> Shipyard:
+        shipyard_soup = self._get_shipyard(planet, delay=delay)
         technologies_el = shipyard_soup.find(id='technologies')
         ships = {}
         production = None
@@ -172,8 +177,10 @@ class OGame:
                 production = Production(o=ship, start=start, end=end, amount=target_amount - amount)
         return Shipyard(ships=ships, production=production)
 
-    def get_resources(self, planet: Union[Planet, int]) -> Resources:
-        resources = self._get_resources(planet)['resources']
+    def get_resources(self,
+                      planet: Union[Planet, int],
+                      delay: int = None) -> Resources:
+        resources = self._get_resources(planet, delay=delay)['resources']
         def amount(res): return int(resources[res]['amount'])
         def storage(res): return int(resources[res]['storage'])
         amounts = {Resource.metal: amount('metal'),
@@ -186,8 +193,9 @@ class OGame:
                    Resource.deuterium: storage('deuterium')}
         return Resources(amount=amounts, storage=storage)
 
-    def get_overview(self) -> Overview:
-        overview_soup = self._get_overview()
+    def get_overview(self,
+                     delay: int = None) -> Overview:
+        overview_soup = self._get_overview(delay=delay)
         planet_list = overview_soup.find(id='planetList')
         smallplanets = planet_list.findAll(class_='smallplanet')
         character_class_el = overview_soup.find(id='characterclass').find('div')
@@ -221,8 +229,9 @@ class OGame:
                 planets.append(moon)
         return Overview(planets=planets, character_class=character_class)
 
-    def get_events(self) -> List[FleetEvent]:
-        event_list = self._get_event_list()
+    def get_events(self,
+                   delay: int = None) -> List[FleetEvent]:
+        event_list = self._get_event_list(delay=delay)
         event_elements = event_list.findAll(class_='eventFleet')
         events = []
         for event_el in event_elements:
@@ -254,7 +263,9 @@ class OGame:
             events.append(event)
         return events
 
-    def get_fleet_movement(self, return_fleet: Union[FleetMovement, int] = None) -> Movement:
+    def get_fleet_movement(self,
+                           return_fleet: Union[FleetMovement, int] = None,
+                           delay: int = None) -> Movement:
         def parse_fleet_info(fleet_info_el):
             def is_resource_cell(cell_index): return cell_index >= len(fleet_info_rows) - 3  # last 3 rows are resources
             def get_resource_from_cell(cell_index): return list(Resource)[3 - len(fleet_info_rows) + cell_index]
@@ -276,7 +287,7 @@ class OGame:
                     ships[ship] = amount
             return ships, cargo
 
-        movement_soup = self._get_movement(return_fleet)
+        movement_soup = self._get_movement(return_fleet, delay=delay)
         movement_el = movement_soup.find(id='movement')
         timestamp = int(movement_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
         if not movement_el:
@@ -359,8 +370,10 @@ class OGame:
                             max_expedition_slots=max_expedition_slots,
                             timestamp=timestamp)
 
-    def get_fleet_dispatch(self, planet: Union[Planet, int]) -> FleetDispatch:
-        fleet_dispatch_soup = self._get_fleet_dispatch(planet)
+    def get_fleet_dispatch(self,
+                           planet: Union[Planet, int],
+                           delay: int = None) -> FleetDispatch:
+        fleet_dispatch_soup = self._get_fleet_dispatch(planet, delay=delay)
         token = find_first_between(str(fleet_dispatch_soup), left='fleetSendingToken = "', right='"')
         timestamp = int(fleet_dispatch_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
         slot_elements = fleet_dispatch_soup.find(id='slots').findAll('div', recursive=False)
@@ -393,7 +406,8 @@ class OGame:
                    fleet_speed: int = 10,
                    resources: Dict[Resource, int] = None,
                    holding_time: int = None,
-                   fleet_dispatch: FleetDispatch = None) -> FleetDispatch:
+                   fleet_dispatch: FleetDispatch = None,
+                   delay: int = None) -> FleetDispatch:
         """ @return: FleetDispatch before sending the fleet. """
         if isinstance(dest, Planet):
             dest = dest.coords
@@ -406,7 +420,7 @@ class OGame:
                 logging.warning('Setting `holding_time` to 0')
             holding_time = 0
         if fleet_dispatch is None:
-            fleet_dispatch = self.get_fleet_dispatch(origin)
+            fleet_dispatch = self.get_fleet_dispatch(origin, delay=delay)
         if ships == 'all':
             ships = fleet_dispatch.ships
         self._post_fleet_dispatch(
@@ -426,54 +440,85 @@ class OGame:
              'retreatAfterDefenderRetreat': 0,
              'union': 0,
              'holdingtime': holding_time,
-             **{f'am{ship.id}': amount for ship, amount in ships.items() if amount > 0}})
+             **{f'am{ship.id}': amount for ship, amount in ships.items() if amount > 0}},
+            delay=delay)
         return fleet_dispatch
 
-    def _get_overview(self, planet: Union[Planet, int] = None):
+    def _get_overview(self,
+                      planet: Union[Planet, int] = None,
+                      delay: int = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
-        return self._get_game_page(params={'page': 'ingame',
-                                           'component': 'overview',
-                                           'cp': planet})
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'overview',
+                    'cp': planet},
+            delay=delay)
 
-    def _get_research(self):
-        return self._get_game_page(params={'page': 'ingame',
-                                           'component': 'research'})
+    def _get_research(self,
+                      delay: int = None):
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'research'},
+            delay=delay)
 
-    def _get_shipyard(self, planet: Union[Planet, int] = None):
+    def _get_shipyard(self,
+                      planet: Union[Planet, int] = None,
+                      delay: int = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
-        return self._get_game_page(params={'page': 'ingame',
-                                           'component': 'shipyard',
-                                           'cp': planet})
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'shipyard',
+                    'cp': planet},
+            delay=delay)
 
-    def _get_fleet_dispatch(self, planet: Union[Planet, int] = None):
+    def _get_fleet_dispatch(self,
+                            planet: Union[Planet, int] = None,
+                            delay: int = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
-        return self._get_game_page(params={'page': 'ingame',
-                                           'component': 'fleetdispatch',
-                                           'cp': planet})
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'fleetdispatch',
+                    'cp': planet},
+            delay=delay)
 
-    def _get_movement(self, return_fleet: Union[FleetMovement, int] = None):
+    def _get_movement(self,
+                      return_fleet: Union[FleetMovement, int] = None,
+                      delay: int = None):
         if return_fleet is not None and isinstance(return_fleet, FleetMovement):
             return_fleet = return_fleet.id
-        return self._get_game_page(params={'page': 'ingame',
-                                           'component': 'movement',
-                                           'return': return_fleet})
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'movement',
+                    'return': return_fleet},
+            delay=delay)
 
-    def _get_resources(self, planet: Union[Planet, int]):
+    def _get_resources(self,
+                       planet: Union[Planet, int],
+                       delay: int = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
-        return self._get_game_resource(resource='json', params={'page': 'fetchResources',
-                                                                'cp': planet,
-                                                                'ajax': 1})
+        return self._get_game_resource(
+            resource='json',
+            params={'page': 'fetchResources',
+                    'cp': planet,
+                    'ajax': 1},
+            delay=delay)
 
-    def _get_event_list(self):
-        return self._get_game_resource(resource='html', params={'page': 'componentOnly',
-                                                                'component': 'eventList',
-                                                                'ajax': 1})
+    def _get_event_list(self,
+                        delay: int = None):
+        return self._get_game_resource(
+            resource='html',
+            params={'page': 'componentOnly',
+                    'component': 'eventList',
+                    'ajax': 1},
+            delay=delay)
 
-    def _post_fleet_dispatch(self, fleet_dispatch_data):
+    def _post_fleet_dispatch(self,
+                             fleet_dispatch_data,
+                             delay: int = None):
         return self._request(
             method='post',
             url=self._base_game_url,
@@ -482,39 +527,8 @@ class OGame:
                     'action': 'sendFleet',
                     'ajax': 1,
                     'asJson': 1},
-            data=fleet_dispatch_data)
-
-    def _get_account(self):
-        accounts = self._get_accounts()
-        for account in accounts:
-            acc_server_number = account['server']['number']
-            acc_server_language = account['server']['language'].casefold()
-            if self.server_number == acc_server_number and self.language == acc_server_language:
-                return account
-
-    def _get_accounts(self):
-        response = self._request(
-            method='get',
-            url='https://lobby.ogame.gameforge.com/api/users/me/accounts',
-            no_delay=True)
-        accounts = response.json()
-        if 'error' in accounts:
-            raise ValueError(accounts['error'])
-        return accounts
-
-    def _get_php_session_id(self):
-        response = self._request(
-            method='post',
-            url='https://lobby.ogame.gameforge.com/api/users',
-            no_delay=True,
-            data={'kid': '',
-                  'language': self.language,
-                  'autologin': 'false',
-                  'credentials[email]': self.username,
-                  'credentials[password]': self.password})
-        for cookie in response.cookies:
-            if cookie.name == 'PHPSESSID':
-                return cookie.value
+            data=fleet_dispatch_data,
+            delay=delay)
 
     def _get_game_resource(self, resource, **kwargs):
         return self._request_game_resource('get', resource, **kwargs)
@@ -532,9 +546,10 @@ class OGame:
     def _request_game_page(self, method, **kwargs):
         if not self._base_game_url:
             raise NotLoggedInError()
-        response = self._request(method=method,
-                                 url=self._base_game_url,
-                                 **kwargs)
+        response = self._request(
+            method=method,
+            url=self._base_game_url,
+            **kwargs)
         soup = parse_html(response)
         ogame_session = soup.find('meta', {'name': 'ogame-session'})
         if not ogame_session:
@@ -545,9 +560,10 @@ class OGame:
     def _request_game_resource(self, method, resource, **kwargs):
         if not self._base_game_url:
             raise NotLoggedInError()
-        response = self._request(method=method,
-                                 url=self._base_game_url,
-                                 **kwargs)
+        response = self._request(
+            method=method,
+            url=self._base_game_url,
+            **kwargs)
         soup = parse_html(response)
         # resource can be either a piece of html or json
         #  so a <head> tag in the html means that we landed on the login page
@@ -560,21 +576,55 @@ class OGame:
         else:
             raise ValueError('unknown resource: ' + str(resource))
 
-    def _request(self, method, url, no_delay=False, **kwargs):
-        if not no_delay and self.delay_between_requests:
-            time_end_of_delay = self._last_request_time + self.delay_between_requests
-            now = time.time()
-            if now < time_end_of_delay:
-                time.sleep(time_end_of_delay - now)
+    @property
+    def _base_game_url(self):
+        if self._server_url:
+            return f'https://{self._server_url}/game/index.php'
+
+    def _get_accounts(self):
+        response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/api/users/me/accounts',
+            delay=0)
+        accounts = response.json()
+        if 'error' in accounts:
+            raise ValueError(accounts['error'])
+        return accounts
+
+    def _get_php_session_id(self):
+        response = self._request(
+            method='post',
+            url='https://lobby.ogame.gameforge.com/api/users',
+            delay=0,
+            data={'kid': '',
+                  'language': self.language,
+                  'autologin': 'false',
+                  'credentials[email]': self.username,
+                  'credentials[password]': self.password})
+        for cookie in response.cookies:
+            if cookie.name == 'PHPSESSID':
+                return cookie.value
+
+    def _request(self, method, url, delay=None, **kwargs):
+        now = time.time()
+        if delay is None:
+            delay = self.delay_between_requests
+        if delay:
+            resume_time = self._last_request_time + delay
+            if now < resume_time:
+                time.sleep(resume_time - now)
         timeout = kwargs.pop('timeout', self.request_timeout)
         response = self._session.request(method, url, timeout=timeout, **kwargs)
         self._last_request_time = time.time()
         return response
 
-    @property
-    def _base_game_url(self):
-        if self._server_url:
-            return f'https://{self._server_url}/game/index.php'
+    def _get_account(self):
+        accounts = self._get_accounts()
+        for account in accounts:
+            acc_server_number = account['server']['number']
+            acc_server_language = account['server']['language'].casefold()
+            if self.server_number == acc_server_number and self.language == acc_server_language:
+                return account
 
     @staticmethod
     def _parse_coords_type(figure_el):
