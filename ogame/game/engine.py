@@ -31,93 +31,35 @@ class Engine:
         self.server_data = server_data
         self.character_class = character_class
 
-    def distance(self,
-                 a: Union[Coordinates, Planet],
-                 b: Union[Coordinates, Planet]) -> int:
-        """ Calculate the distance units between two coordinate systems. """
-        if isinstance(a, Planet):
-            a = a.coords
-        if isinstance(b, Planet):
-            b = b.coords
-        if a.galaxy != b.galaxy:
-            galaxy_diff = abs(a.galaxy - b.galaxy)
-            if self.server_data.donut_galaxy:
-                return 20000 * min(galaxy_diff, self.server_data.galaxies - galaxy_diff)
-            else:
-                return 20000 * galaxy_diff
-        elif a.system != b.system:
-            system_diff = abs(a.system - b.system)
-            if self.server_data.donut_system:
-                return 2700 + 95 * min(system_diff, self.server_data.systems - system_diff)
-            else:
-                return 2700 + 95 * system_diff
-        elif a.position != b.position:
-            position_diff = abs(a.position - b.position)
-            return 1000 + 5 * position_diff
-        elif a.type != b.type:
-            return 5
-        else:
-            return 0
-
-    def flight_duration(self,
-                        distance: int,
-                        ships: Dict[Ship, int],
-                        fleet_speed: int = 10,
-                        technology: Dict[Technology, int] = None) -> int:
-        """
-        @param distance: distance units between two coordinate systems
-        @param ships: dictionary describing the size of the fleet
-        @param fleet_speed: fleet speed (1-10)
-        @param technology: dictionary describing the current technology levels
-        @return: duration of the flight in seconds
-        """
-        if not any(ships.values()):
-            raise ValueError('Cannot calculate flight duration if there are not ships.')
-        lowest_ship_speed = min([self.ship_speed(ship, technology)
-                                 for ship, amount in ships.items()
-                                 if amount > 0])
-        return self._flight_duration(
-            distance=distance,
-            ship_speed=lowest_ship_speed,
-            speed_percentage=10 * fleet_speed)
-
     def fuel_consumption(self,
-                         distance: int,
+                         origin: Union[Planet, Coordinates],
+                         destination: Union[Planet, Coordinates],
                          ships: Dict[Ship, int],
-                         flight_duration: int,
-                         holding_time: int = 0,
-                         technology: Dict[Technology, int] = None) -> int:
+                         technology: Dict[Technology, int] = None,
+                         fleet_speed: int = 10,
+                         holding_time: int = 0) -> int:
         """
-        @param distance: distance units between two coordinate systems
+        @param origin: origin coordinates
+        @param destination: destination coordinates
         @param ships: dictionary describing the size of the fleet
-        @param flight_duration: duration of the flight in seconds
-        @param holding_time: holding duration in hours
         @param technology: dictionary describing the current technology levels
-        @return: fuel consumption of the entire fleet
+        @param fleet_speed: fleet speed (1-10)
+        @param holding_time: holding duration in hours
+        @return: fuel consumption of a flight
         """
-        if not any(ships.values()):
-            raise ValueError('Cannot calculate fuel consumption if there are not ships.')
-        flight_fuel_consumption = 0
-        holding_fuel_consumption = 0
-        for ship, amount in ships.items():
-            if amount > 0:
-                ship_speed_ = self.ship_speed(ship, technology)
-                drive_technology = self._drive_technology(ship, technology)
-                drive_fuel_consumption = SHIP_DATA[ship].drives[drive_technology].fuel_consumption
-                base_fuel_consumption = int(self._deuterium_save_factor * drive_fuel_consumption)
-                ship_fuel_consumption = self._flight_fuel_consumption(
-                    base_fuel_consumption=base_fuel_consumption,
-                    distance=distance,
-                    ship_speed=ship_speed_,
-                    flight_duration=flight_duration)
-                flight_fuel_consumption += amount * ship_fuel_consumption
-                if holding_time:
-                    ship_holding_consumption = self._holding_fuel_consumption(
-                        base_fuel_consumption=base_fuel_consumption,
-                        holding_time=holding_time)
-                    holding_fuel_consumption += amount * ship_holding_consumption
-        total_fuel_consumption = round(flight_fuel_consumption + holding_fuel_consumption) + 1
-        return total_fuel_consumption
+        distance = self.distance(origin, destination)
+        flight_duration = self.flight_duration(
+            distance=distance,
+            ships=ships,
+            fleet_speed=fleet_speed,
+            technology=technology)
+        fuel_consumption = self.flight_fuel_consumption(
+            distance=distance,
+            ships=ships,
+            flight_duration=flight_duration,
+            holding_time=holding_time,
+            technology=technology)
+        return fuel_consumption
 
     def cargo_capacity(self,
                        ships: Dict[Ship, int],
@@ -142,31 +84,6 @@ class Engine:
                     hst_level=hyperspace_technology_level)
                 total_capacity += amount * ship_capacity
         return total_capacity
-
-    def ship_speed(self,
-                   ship: Ship,
-                   technology: Dict[Technology, int] = None) -> int:
-        """
-        @param ship: ship
-        @param technology: dictionary describing the current technology levels
-        @return: actual speed of the ship
-        """
-        drive_technology = self._drive_technology(ship, technology)
-        drive_technology_level = None
-        if technology:
-            drive_technology_level = technology.get(drive_technology)
-            if drive_technology_level is None:
-                logging.warning(f'Missing {drive_technology} in technology.')
-        base_speed = SHIP_DATA[ship].drives[drive_technology].speed
-        drive_bonus = self._drive_bonus_ship_speed(
-            ship=ship,
-            drive_technology=drive_technology,
-            drive_level=drive_technology_level)
-        class_bonus = self._class_bonus_ship_speed(
-            ship=ship,
-            drive_technology=drive_technology)
-        speed = base_speed + drive_bonus + class_bonus
-        return speed
 
     def expedition_find_with_fleet(self,
                                    ships: Dict[Ship, int],
@@ -253,6 +170,119 @@ class Engine:
             return 21000
         else:
             return 25000
+
+    def distance(self,
+                 a: Union[Coordinates, Planet],
+                 b: Union[Coordinates, Planet]) -> int:
+        """ Calculate the distance units between two coordinate systems. """
+        if isinstance(a, Planet):
+            a = a.coords
+        if isinstance(b, Planet):
+            b = b.coords
+        if a.galaxy != b.galaxy:
+            galaxy_diff = abs(a.galaxy - b.galaxy)
+            if self.server_data.donut_galaxy:
+                return 20000 * min(galaxy_diff, self.server_data.galaxies - galaxy_diff)
+            else:
+                return 20000 * galaxy_diff
+        elif a.system != b.system:
+            system_diff = abs(a.system - b.system)
+            if self.server_data.donut_system:
+                return 2700 + 95 * min(system_diff, self.server_data.systems - system_diff)
+            else:
+                return 2700 + 95 * system_diff
+        elif a.position != b.position:
+            position_diff = abs(a.position - b.position)
+            return 1000 + 5 * position_diff
+        elif a.type != b.type:
+            return 5
+        else:
+            return 0
+
+    def flight_duration(self,
+                        distance: int,
+                        ships: Dict[Ship, int],
+                        fleet_speed: int = 10,
+                        technology: Dict[Technology, int] = None) -> int:
+        """
+        @param distance: distance units between two coordinate systems
+        @param ships: dictionary describing the size of the fleet
+        @param fleet_speed: fleet speed (1-10)
+        @param technology: dictionary describing the current technology levels
+        @return: duration of the flight in seconds
+        """
+        if not any(ships.values()):
+            raise ValueError('Cannot calculate flight duration if there are not ships.')
+        lowest_ship_speed = min([self.ship_speed(ship, technology)
+                                 for ship, amount in ships.items()
+                                 if amount > 0])
+        return self._flight_duration(
+            distance=distance,
+            ship_speed=lowest_ship_speed,
+            speed_percentage=10 * fleet_speed)
+
+    def flight_fuel_consumption(self,
+                                distance: int,
+                                ships: Dict[Ship, int],
+                                flight_duration: int,
+                                holding_time: int = 0,
+                                technology: Dict[Technology, int] = None) -> int:
+        """
+        @param distance: distance units between two coordinate systems
+        @param ships: dictionary describing the size of the fleet
+        @param flight_duration: duration of the flight in seconds
+        @param holding_time: holding duration in hours
+        @param technology: dictionary describing the current technology levels
+        @return: fuel consumption of the entire fleet
+        """
+        if not any(ships.values()):
+            raise ValueError('Cannot calculate fuel consumption if there are not ships.')
+        total_fuel_consumption_flying = 0
+        total_fuel_consumption_holding = 0
+        for ship, amount in ships.items():
+            if amount > 0:
+                ship_speed_ = self.ship_speed(ship, technology)
+                drive_technology = self._drive_technology(ship, technology)
+                base_drive_fuel_consumption = SHIP_DATA[ship].drives[drive_technology].fuel_consumption
+                base_fuel_consumption = int(self._deuterium_save_factor * base_drive_fuel_consumption)
+                ship_fuel_consumption_flying = self._ship_fuel_consumption_flying(
+                    base_fuel_consumption=base_fuel_consumption,
+                    distance=distance,
+                    ship_speed=ship_speed_,
+                    flight_duration=flight_duration)
+                total_fuel_consumption_flying += amount * ship_fuel_consumption_flying
+                if holding_time:
+                    ship_fuel_consumption_holding = self._ship_fuel_consumption_holding(
+                        base_fuel_consumption=base_fuel_consumption,
+                        holding_time=holding_time)
+                    total_fuel_consumption_holding += amount * ship_fuel_consumption_holding
+        total_fuel_consumption = round(total_fuel_consumption_flying + total_fuel_consumption_holding) + 1
+        return total_fuel_consumption
+
+    def ship_speed(self,
+                   ship: Ship,
+                   technology: Dict[Technology, int] = None) -> int:
+        """
+        @param ship: ship
+        @param technology: dictionary describing the current technology levels
+        @return: actual speed of the ship
+        """
+        drive_technology = self._drive_technology(ship, technology)
+        drive_technology_level = None
+        if technology:
+            drive_technology_level = technology.get(drive_technology)
+            if drive_technology_level is None:
+                logging.warning(f'Missing {drive_technology} in technology.')
+        base_speed = SHIP_DATA[ship].drives[drive_technology].speed
+        drive_bonus = self._drive_bonus_ship_speed(
+            ship=ship,
+            drive_technology=drive_technology,
+            drive_level=drive_technology_level)
+        class_bonus = self._class_bonus_ship_speed(
+            ship=ship,
+            drive_technology=drive_technology)
+        speed = base_speed + drive_bonus + class_bonus
+        return speed
 
     def _expedition_loot_boost(self, pathfinder_in_fleet: bool = False) -> float:
         """
@@ -341,25 +371,25 @@ class Engine:
         # otherwise return the default drive (slowest of all)
         return min(SHIP_DATA[ship].drives, key=DRIVE_FACTOR.get)
 
-    def _flight_fuel_consumption(self,
-                                 base_fuel_consumption: int,
-                                 distance: int,
-                                 ship_speed: int,
-                                 flight_duration: int) -> float:
+    def _ship_fuel_consumption_flying(self,
+                                      base_fuel_consumption: int,
+                                      distance: int,
+                                      ship_speed: int,
+                                      flight_duration: int) -> float:
         """
         @param base_fuel_consumption: base fuel consumption of a ship
         @param distance: distance units between two coordinate systems
         @param ship_speed: ship speed
         @param flight_duration duration of the flight in seconds
-        @return: fuel consumption of a ship for the flight
+        @return: fuel consumption of a ship during flight
         """
         return base_fuel_consumption * distance / 35000 * (
                 35000 / (flight_duration * self.server_data.fleet_speed - 10)
                 * math.sqrt(10 * distance / ship_speed) / 10 + 1) ** 2
 
     @staticmethod
-    def _holding_fuel_consumption(base_fuel_consumption: int,
-                                  holding_time: int = 1) -> float:
+    def _ship_fuel_consumption_holding(base_fuel_consumption: int,
+                                       holding_time: int = 1) -> float:
         """
         @param base_fuel_consumption: base fuel consumption of a ship
         @param holding_time: holding duration in hours

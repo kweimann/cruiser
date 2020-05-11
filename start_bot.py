@@ -67,7 +67,7 @@ if __name__ == '__main__':
         #  browser and Cruiser will simply relogin if it is awake.
         client.login()
 
-        # Initialize Cruiser's interval state.
+        # Initialize Cruiser's internal state.
         bot.start()
 
         # Run the scheduler indefinitely.

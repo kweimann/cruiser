@@ -275,11 +275,12 @@ class OGameBot:
                                     # Adjust the available resources by subtracting fuel consumption.
                                     resources[Resource.deuterium] -= cheapest_escape_flight.fuel_consumption
                                     # Select which resources will be saved.
-                                    cargo = get_cargo(
-                                        engine=self._engine,
-                                        resources=resources,
+                                    free_cargo_capacity = self._engine.cargo_capacity(
                                         ships=fleet_dispatch.ships,
                                         technology=technology)
+                                    cargo = get_cargo(
+                                        resources=resources,
+                                        free_cargo_capacity=free_cargo_capacity)
                                     # Send fleet to a safe destination.
                                     self.client.send_fleet(
                                         origin=planet,
@@ -426,8 +427,7 @@ class OGameBot:
                 continue
             # Check if there is enough fuel to make the flight.
             technology = state.get_research().technology
-            fuel_consumption = calculate_fuel_consumption(
-                engine=self._engine,
+            fuel_consumption = self._engine.fuel_consumption(
                 origin=planet,
                 destination=expedition.data.dest,
                 ships=expedition.data.ships,
@@ -523,8 +523,7 @@ def get_escape_flights(engine: Engine,
             destination = destination.coords
         if origin != destination:
             for fleet_speed in range(10):
-                fuel_consumption = calculate_fuel_consumption(
-                    engine=engine,
+                fuel_consumption = engine.fuel_consumption(
                     origin=origin,
                     destination=destination,
                     ships=ships,
@@ -538,36 +537,10 @@ def get_escape_flights(engine: Engine,
     return escape_flights
 
 
-def calculate_fuel_consumption(engine: Engine,
-                               origin: Union[Planet, Coordinates],
-                               destination: Union[Planet, Coordinates],
-                               ships: Dict[Ship, int],
-                               technology: Dict[Technology, int] = None,
-                               fleet_speed: int = 10,
-                               holding_time: int = 0) -> int:
-    """ Get fuel consumption of a flight. """
-    distance = engine.distance(origin, destination)
-    flight_duration = engine.flight_duration(
-        distance=distance,
-        ships=ships,
-        fleet_speed=fleet_speed,
-        technology=technology)
-    fuel_consumption = engine.fuel_consumption(
-        distance=distance,
-        ships=ships,
-        flight_duration=flight_duration,
-        holding_time=holding_time,
-        technology=technology)
-    return fuel_consumption
-
-
-def get_cargo(engine: Engine,
-              resources: Dict[Resource, int],
-              ships: Dict[Ship, int],
-              technology: Dict[Technology, int] = None) -> Dict[Resource, int]:
+def get_cargo(resources: Dict[Resource, int],
+              free_cargo_capacity: int) -> Dict[Resource, int]:
     """ Get resources that can be loaded on the ships. Priority descending: deuterium, crystal, metal. """
     loaded_resources = {}
-    free_cargo_capacity = engine.cargo_capacity(ships, technology)
     for resource in [Resource.deuterium, Resource.crystal, Resource.metal]:
         if free_cargo_capacity <= 0:
             break
