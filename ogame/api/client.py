@@ -203,9 +203,9 @@ class OGameAPI:
                 'server_data': server_data}
 
     def _get_endpoint(self, endpoint, **kwargs):
-        response = requests.get(self._api(endpoint), timeout=self.request_timeout, **kwargs)
+        response = requests.get(self._api_url(endpoint), timeout=self.request_timeout, **kwargs)
         endpoint_data = xmltodict.parse(response.content)[endpoint]
         return endpoint_data
 
-    def _api(self, endpoint):
+    def _api_url(self, endpoint):
         return f'https://s{self.server_number}-{self.server_language}.ogame.gameforge.com/api/{endpoint}.xml'

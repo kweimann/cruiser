@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from ogame.api.client import OGameAPI
 from ogame.game.const import (
     Mission,
     CoordsType,
@@ -34,11 +35,14 @@ from ogame.util import (
     str2bool,
     tuple2timestamp,
     find_first_between,
-    find_unique
 )
 
 
 class NotLoggedInError(Exception):
+    pass
+
+
+class ParseException(Exception):
     pass
 
 
@@ -61,16 +65,20 @@ def keep_session(*, maxtries=1):
 
 
 class OGame:
-    def __init__(self, universe, username, password, language,
-                 request_timeout=10, delay_between_requests=0):
-        self.universe = universe
+    def __init__(self,
+                 username: str,
+                 password: str,
+                 language: str,
+                 server_number: int,
+                 request_timeout: int = 10,
+                 delay_between_requests: int = 0):
         self.username = username
         self.password = password
-        self.language = language
+        self.language = language.casefold()
+        self.server_number = server_number
         self.request_timeout = request_timeout
         self.delay_between_requests = delay_between_requests
         self._account = None
-        self._server = None
         self._session = requests.session()
         self._session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -80,24 +88,48 @@ class OGame:
         })
         self._server_url = None
         self._last_request_time = 0
+        self._tech_dictionary = None
+
+    @property
+    def api(self):
+        return OGameAPI(
+            server_number=self.server_number,
+            server_language=self.language)
 
     def login(self) -> None:
+        # Get PHPSESSID token used in every request.
         php_session_id = self._get_php_session_id()
         if not php_session_id:
             raise ValueError('Invalid credentials.')
+        # Find the server.
+        if not self._account:
+            self._account = self._get_account()
+            if not self._account:
+                raise ValueError('Invalid server.')
+        # Login to the server.
         login_response = self._request(
             method='get',
             url='https://lobby.ogame.gameforge.com/api/users/me/loginLink',
-            params={'id': self.account['id'],
-                    'server[language]': self.server['language'],
-                    'server[number]': self.server['number']})
+            no_delay=True,
+            params={'id': self._account['id'],
+                    'server[language]': self.language,
+                    'server[number]': self.server_number})
         login_status = login_response.json()
         if 'error' in login_status:
             raise ValueError(login_status['error'])
-        url = login_status['url']
-        url_parsed = urlparse(url)
-        self._server_url = url_parsed.netloc
-        self._request(method='get',  url=url)
+        # Go to the landing page in the game.
+        login_url = login_status['url']
+        login_url_parsed = urlparse(login_url)
+        self._server_url = login_url_parsed.netloc
+        self._request(
+            method='get',
+            url=login_url,
+            no_delay=True)
+        # Initialize tech dictionary from the API. It is used for
+        #  translating ship names while parsing the movement page.
+        #  Note that we assume that the dictionary won't change.
+        if self._tech_dictionary is None:
+            self._tech_dictionary = self.api.get_localization()['technologies']
 
     def get_research(self) -> Research:
         research_soup = self._get_research()
@@ -223,6 +255,27 @@ class OGame:
         return events
 
     def get_fleet_movement(self, return_fleet: Union[FleetMovement, int] = None) -> Movement:
+        def parse_fleet_info(fleet_info_el):
+            def is_resource_cell(cell_index): return cell_index >= len(fleet_info_rows) - 3  # last 3 rows are resources
+            def get_resource_from_cell(cell_index): return list(Resource)[3 - len(fleet_info_rows) + cell_index]
+            fleet_info_rows = fleet_info_el.find_all(lambda el: _find_exactly_one(el, raise_exc=False, class_='value'))
+            ships = {}
+            cargo = {}
+            for i, row in enumerate(fleet_info_rows):
+                name_col, value_col = _find_exactly(row, n=2, name='td')
+                amount = join_digits(value_col.text)
+                if is_resource_cell(i):
+                    resource = get_resource_from_cell(i)
+                    cargo[resource] = amount
+                else:
+                    tech_name = name_col.text.strip()[:-1]  # remove colon at the end
+                    tech_id = self._tech_dictionary.get(tech_name)
+                    if not tech_id:
+                        raise ParseException(f'Unknown ship (name={tech_name}) found while parsing.')
+                    ship = Ship(tech_id)
+                    ships[ship] = amount
+            return ships, cargo
+
         movement_soup = self._get_movement(return_fleet)
         movement_el = movement_soup.find(id='movement')
         timestamp = int(movement_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
@@ -285,6 +338,8 @@ class OGame:
                     # destination type is a planet by default
                     dest_type = CoordsType.planet
                 dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
+                fleet_info_el = _find_exactly_one(fleet_details_el, class_='fleetinfo')
+                ships, cargo = parse_fleet_info(fleet_info_el)
                 fleet = FleetMovement(id=fleet_id,
                                       origin=origin,
                                       dest=dest,
@@ -292,6 +347,8 @@ class OGame:
                                       arrival_time=arrival_time,
                                       mission=mission,
                                       return_flight=return_flight,
+                                      ships=ships,
+                                      cargo=cargo,
                                       holding=holding,
                                       holding_time=holding_time)
                 fleets.append(fleet)
@@ -372,30 +429,6 @@ class OGame:
              **{f'am{ship.id}': amount for ship, amount in ships.items() if amount > 0}})
         return fleet_dispatch
 
-    @property
-    def account(self):
-        if self._account is None:
-            accounts = self._get_accounts()
-            def get_properties(account): return account['server']['number']
-            account_properties = self.server['number']
-            account = find_unique(account_properties, accounts, key=get_properties)
-            if not account:
-                raise ValueError('Account not found.')
-            self._account = account
-        return self._account
-
-    @property
-    def server(self):
-        if self._server is None:
-            servers = self._get_servers()
-            def get_properties(server): return server['name'].lower(), server['language'].lower()
-            server_properties = (self.universe.lower(), self.language.lower())
-            server = find_unique(server_properties, servers, key=get_properties)
-            if server is None:
-                raise ValueError('Server not found.')
-            self._server = server
-        return self._server
-
     def _get_overview(self, planet: Union[Planet, int] = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
@@ -451,10 +484,29 @@ class OGame:
                     'asJson': 1},
             data=fleet_dispatch_data)
 
+    def _get_account(self):
+        accounts = self._get_accounts()
+        for account in accounts:
+            acc_server_number = account['server']['number']
+            acc_server_language = account['server']['language'].casefold()
+            if self.server_number == acc_server_number and self.language == acc_server_language:
+                return account
+
+    def _get_accounts(self):
+        response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/api/users/me/accounts',
+            no_delay=True)
+        accounts = response.json()
+        if 'error' in accounts:
+            raise ValueError(accounts['error'])
+        return accounts
+
     def _get_php_session_id(self):
         response = self._request(
             method='post',
             url='https://lobby.ogame.gameforge.com/api/users',
+            no_delay=True,
             data={'kid': '',
                   'language': self.language,
                   'autologin': 'false',
@@ -463,14 +515,6 @@ class OGame:
         for cookie in response.cookies:
             if cookie.name == 'PHPSESSID':
                 return cookie.value
-
-    def _get_accounts(self):
-        response = self._request(method='get',
-                                 url='https://lobby.ogame.gameforge.com/api/users/me/accounts')
-        accounts = response.json()
-        if 'error' in accounts:
-            raise ValueError(accounts['error'])
-        return accounts
 
     def _get_game_resource(self, resource, **kwargs):
         return self._request_game_resource('get', resource, **kwargs)
@@ -516,8 +560,8 @@ class OGame:
         else:
             raise ValueError('unknown resource: ' + str(resource))
 
-    def _request(self, method, url, **kwargs):
-        if self.delay_between_requests:
+    def _request(self, method, url, no_delay=False, **kwargs):
+        if not no_delay and self.delay_between_requests:
             time_end_of_delay = self._last_request_time + self.delay_between_requests
             now = time.time()
             if now < time_end_of_delay:
@@ -526,10 +570,6 @@ class OGame:
         response = self._session.request(method, url, timeout=timeout, **kwargs)
         self._last_request_time = time.time()
         return response
-
-    @staticmethod
-    def _get_servers():
-        return requests.get('https://lobby.ogame.gameforge.com/api/servers').json()
 
     @property
     def _base_game_url(self):
@@ -546,3 +586,40 @@ class OGame:
             return CoordsType.debris
         else:
             raise ValueError('Failed to parse coordinate type.')
+
+
+def _find_exactly_one(root, raise_exc=True, **kwargs):
+    """ Find exactly one element. """
+    descendants = _find_exactly(root, n=1, raise_exc=raise_exc, **kwargs)
+    if raise_exc or descendants:
+        return descendants[0]
+
+
+def _find_at_least_one(root, **kwargs):
+    """ Find at least one element. """
+    descendants = root.find_all(**kwargs)
+    if len(descendants) == 0:
+        raise ParseException(f'Failed to find any descendants of:\n'
+                             f'element: {root.attrs}\n'
+                             f'query: {kwargs}')
+    return descendants
+
+
+def _find_exactly(root, n, raise_exc=True, **kwargs):
+    """ Find exactly `n` elements. By default raise ParseException if exactly `n` elements were not found. """
+    limit = kwargs.get('limit')
+    if limit and n > limit:
+        raise ValueError(f'An exact number of elements (n={n}) will never be matched '
+                         f'because of the limit (limit={limit}).')
+    query = dict(**kwargs)
+    # exception will be thrown regardless of the number of elements,
+    #  so don't match more than necessary
+    query.update({'limit': n + 1})
+    descendants = root.find_all(**query)
+    if len(descendants) != n:
+        if raise_exc:
+            raise ParseException(f'Failed to find exactly (n={n}) descendant(s) of:\n'
+                                 f'element: {root.attrs}\n'
+                                 f'query: {kwargs}')
+    else:
+        return descendants

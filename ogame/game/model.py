@@ -82,6 +82,8 @@ class FleetMovement:
     arrival_time: int
     mission: Mission
     return_flight: bool
+    ships: Dict[Ship, int]
+    cargo: Dict[Resource, int]
     holding: bool = False
     holding_time: int = 0
 

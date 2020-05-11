@@ -20,7 +20,6 @@ from bot.protocol import (
 )
 from ogame import (
     OGame,
-    OGameAPI,
     Engine
 )
 from ogame.game.const import (
@@ -130,7 +129,7 @@ class OGameBot:
 
     def start(self):
         if self._engine is None:
-            server_data = self._api_client.get_server_data()['server_data']
+            server_data = self.client.api.get_server_data()['server_data']
             self._engine = Engine(server_data)
         if self._periodic_wakeup_id is None:
             def random_sleep_duration(): return random.uniform(self.sleep_min, self.sleep_max)
@@ -504,12 +503,6 @@ class OGameBot:
             e = (exc_type, e, exc_tb)
         for listener in self._listeners:
             listener.notify_exception(e)
-
-    @property
-    def _api_client(self):
-        return OGameAPI(server_number=self.client.server['number'],
-                        server_language=self.client.server['language'],
-                        request_timeout=self.client.request_timeout)
 
     @property
     def _retrying_after_exception(self):
