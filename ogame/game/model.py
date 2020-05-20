@@ -11,26 +11,26 @@ from ogame.game.const import (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(order=True, frozen=True)
 class Coordinates:
     galaxy: int
     system: int
     position: int
     type: CoordsType
-    def __str__(self): return f'[{self.type.name.capitalize()[0]}]({self.galaxy}:{self.system}:{self.position})'
-    def __repr__(self): return f'[{self.type.name.capitalize()[0]}]({self.galaxy}:{self.system}:{self.position})'
+    def __str__(self): return f'[{self.type.name.capitalize()[0]}:{self.galaxy}:{self.system}:{self.position}]'
+    def __repr__(self): return f'[{self.type.name.capitalize()[0]}:{self.galaxy}:{self.system}:{self.position}]'
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Planet:
     id: int
     name: str
     coords: Coordinates
-    def __str__(self): return f'{self.name}{self.coords}'
-    def __repr__(self): return f'{self.name}{self.coords}'
+    def __str__(self): return f'{self.name} {self.coords}'
+    def __repr__(self): return f'{self.name} {self.coords}'
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FleetEvent:
     id: int
     origin: Coordinates
@@ -41,7 +41,7 @@ class FleetEvent:
     player_id: int = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Production:
     o: Union[Ship, Technology]
     start: int
@@ -49,31 +49,31 @@ class Production:
     amount: int = 1
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Overview:
     planets: List[Planet]
     character_class: CharacterClass = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Shipyard:
     ships: Dict[Ship, int]
     production: Production = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Research:
     technology: Dict[Technology, int]
     production: Production = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Resources:
     amount: Dict[Resource, int]
     storage: Dict[Resource, int]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FleetMovement:
     id: int
     origin: Coordinates
@@ -108,7 +108,7 @@ class FleetMovement:
             return self.arrival_time - self.flight_duration
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Movement:
     fleets: List[FleetMovement]
     used_fleet_slots: int
@@ -124,7 +124,7 @@ class Movement:
     def free_expedition_slots(self) -> int: return self.max_expedition_slots - self.used_expedition_slots
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FleetDispatch:
     dispatch_token: str
     ships: Dict[Ship, int]

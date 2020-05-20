@@ -64,7 +64,7 @@ if __name__ == '__main__':
         #  any subsequent logins in case of a logout.
         #
         #  This means you are free to access your account from the
-        #  browser and Cruiser will simply relogin if it is awake.
+        #  browser and Cruiser will simply relogin if it is awakened.
         client.login()
 
         # Initialize Cruiser's internal state.

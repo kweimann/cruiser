@@ -1,36 +1,45 @@
-# account details
+# Account details.
 account:
   username: <username>  # account email
   password: <password>  # account password
-  universe: <universe>  # name of the universe e.g. Uni1 or server number e.g. 1
+  universe: <universe>  # name of the universe e.g. "Universe 1" or server number e.g. 1
   language: <language>  # server language e.g. en
 
-# listeners for notifications from the bot
+# Listeners for notifications from Cruiser.
 listeners:
   telegram:
     api_token: <API token>  # unique authentication token of the telegram bot; see https://core.telegram.org/bots/api
-    chat_id: <chat id>      # id of the chat between you and the bot
+    chat_id: <chat id>      # id of the chat between you and the telegram bot
 
-# bot settings
+# Cruiser settings
 bot:
   listeners: []             # names of the listeners e.g. listeners: [telegram]
-  expeditions: []           # ids of expeditions e.g. expeditions: [<expedition_id>]
+  expeditions: []           # user-defined ids of expeditions (see expeditions below) e.g. expeditions: [<expedition_id>]
 
-  sleep_min: 600  # minimum sleep time between two wakeup calls to the bot (default = 10 minutes)
-  sleep_max: 900  # maximum sleep time between two wakeup calls to the bot (default = 15 minutes)
+  # If true, Cruiser will attempt to recall a saved fleet within a short time window
+  #  if there no longer is any danger.
+  try_recalling_saved_fleet: false
+
+  # If true, Cruiser will harvest debris left by the user-defined expeditions.
+  harvest_expedition_debris: true
+
+  # After doing work, Cruiser will sleep between `sleep_min` and `sleep_max` seconds.
+  sleep_min: 600  # (default = 10 minutes)
+  sleep_max: 900  # (default = 15 minutes)
 
   # If a hostile fleet arrives before `max_time_before_attack_to_act` value,
-  #  bot will attempt to defend the planet. Otherwise defense will be scheduled between
+  #  Cruiser will attempt to defend the planet. Otherwise defense will be scheduled between
   #  `min_time_before_attack_to_act` and `max_time_before_attack_to_act` before the attack.
   min_time_before_attack_to_act: 120  # (default = 2 minutes)
   max_time_before_attack_to_act: 180  # (default = 3 minutes)
 
+  # Settings related to the communication with the OGame servers.
   request_timeout: 10                 # time to wait on a response from a server (default = 10 seconds)
   delay_between_requests: 0           # minimum delay between two subsequent requests (default = no delay)
 
-# expedition settings
-expeditions:                                    # expeditions dictionary
-  <expedition_id>:
+# Expedition settings.
+expeditions:
+  <expedition_id>:                              # <expedition_id> is a user-defined id of the expedition
     origin: [<system>, <galaxy>, <position>]    # expedition origin e.g. [1, 1, 1]
     origin_type: <planet|moon>                  # (optional) origin type (default = planet)
     dest: [<system>, <galaxy>, <position>]      # (optional) expedition destination e.g. [1, 1, 16] (default = [<origin_galaxy>, <origin_system>, 16])

@@ -123,7 +123,7 @@ class OGameAPI:
     def get_server_data(self):
         def parse_server_data(server_data_dict):
             return ServerData(
-                name=server_data_dict['name'],
+                name=server_data_dict.get('name'),
                 number=int(server_data_dict['number']),
                 language=server_data_dict['language'],
                 timezone=server_data_dict['timezone'],

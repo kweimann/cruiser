@@ -9,10 +9,11 @@ class IdEnum(enum.Enum):
 
     @classmethod
     def from_name(cls, name: str):
-        value = next((value for value in cls if value.name == name), None)
-        if not value:
-            raise ValueError(f'{name} is not a valid field.')
-        return value
+        return next((e for e in cls if e.name == name), None)
+
+    @classmethod
+    def from_id(cls, id):
+        return next((e for e in cls if e.id == id), None)
 
 
 @enum.unique
@@ -50,8 +51,10 @@ class Ship(IdEnum):
     espionage_probe = 210
     bomber = 211
     destroyer = 213
+    solar_satellite = 212
     deathstar = 214
     battlecruiser = 215
+    crawler = 217
     reaper = 218
     pathfinder = 219
 

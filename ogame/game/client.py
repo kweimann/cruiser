@@ -136,53 +136,75 @@ class OGame:
     def get_research(self,
                      delay: int = None) -> Research:
         research_soup = self._get_research(delay=delay)
-        technologies_el = research_soup.find(id='technologies')
+        technology_elements = _find_at_least_one(research_soup, class_='technology')
         technologies = {}
         production = None
-        for technology in Technology:
-            technology_el = technologies_el.find('li', {'data-technology': technology.id}, class_='technology')
-            level_el = technology_el.find('span', class_='level')
+        for technology_el in technology_elements:
+            level_el = _find_exactly_one(technology_el, class_='level')
+            technology_id = int(technology_el['data-technology'])
+            technology = Technology.from_id(technology_id)
+            if not technology:
+                logging.warning(f'Missing technology (id={technology_id})')
+                continue
             level = int(level_el['data-value'])
             bonus = join_digits(level_el['data-bonus'])
-            technologies[technology] = level + bonus
-            if technology_el['data-status'] == 'active':
+            status = technology_el['data-status']
+            if status == 'active':
                 if production is not None:
                     logging.warning('Multiple productions encountered.')
-                    continue
-                start = int(technology_el['data-start'])
-                end = int(technology_el['data-end'])
-                production = Production(o=technology, start=start, end=end)
-        return Research(technology=technologies, production=production)
+                else:
+                    prod_start = int(technology_el['data-start'])
+                    prod_end = int(technology_el['data-end'])
+                    production = Production(
+                        o=technology,
+                        start=prod_start,
+                        end=prod_end)
+            technologies[technology] = level + bonus
+        return Research(
+            technology=technologies,
+            production=production)
 
     def get_shipyard(self,
                      planet: Union[Planet, int],
                      delay: int = None) -> Shipyard:
         shipyard_soup = self._get_shipyard(planet, delay=delay)
-        technologies_el = shipyard_soup.find(id='technologies')
+        ship_elements = _find_at_least_one(shipyard_soup, class_='technology')
         ships = {}
         production = None
-        for ship in Ship:
-            ship_el = technologies_el.find('li', {'data-technology': ship.id}, class_='technology')
-            amount_el = ship_el.find('span', class_='amount')
+        for ship_el in ship_elements:
+            amount_el = _find_exactly_one(ship_el, class_='amount')
+            ship_id = int(ship_el['data-technology'])
+            ship = Ship.from_id(ship_id)
+            if not ship:
+                logging.warning(f'Missing ship (id={ship_id})')
+                continue
             amount = int(amount_el['data-value'])
-            ships[ship] = amount
-            if ship_el['data-status'] == 'active':
+            status = ship_el['data-status']
+            if status == 'active':
                 if production is not None:
                     logging.warning('Multiple productions encountered.')
-                    continue
-                target_amount_el = ship_el.find('span', class_='targetamount')
-                target_amount = int(target_amount_el['data-value'])
-                start = int(ship_el['data-start'])
-                end = int(ship_el['data-end'])
-                production = Production(o=ship, start=start, end=end, amount=target_amount - amount)
-        return Shipyard(ships=ships, production=production)
+                else:
+                    target_amount_el = _find_exactly_one(ship_el, class_='targetamount')
+                    target_amount = int(target_amount_el['data-value'])
+                    prod_start = int(ship_el['data-start'])
+                    prod_end = int(ship_el['data-end'])
+                    production = Production(
+                        o=ship,
+                        start=prod_start,
+                        end=prod_end,
+                        amount=target_amount - amount)
+            ships[ship] = amount
+        return Shipyard(
+            ships=ships,
+            production=production)
 
     def get_resources(self,
-                      planet: Union[Planet, int],
-                      delay: int = None) -> Resources:
-        resources = self._get_resources(planet, delay=delay)['resources']
+                      planet: Union[Planet, int]) -> Resources:
         def amount(res): return int(resources[res]['amount'])
         def storage(res): return int(resources[res]['storage'])
+        resources = self._get_resources(
+            planet=planet,
+            delay=0)['resources']
         amounts = {Resource.metal: amount('metal'),
                    Resource.crystal: amount('crystal'),
                    Resource.deuterium: amount('deuterium'),
@@ -191,7 +213,9 @@ class OGame:
         storage = {Resource.metal: storage('metal'),
                    Resource.crystal: storage('crystal'),
                    Resource.deuterium: storage('deuterium')}
-        return Resources(amount=amounts, storage=storage)
+        return Resources(
+            amount=amounts,
+            storage=storage)
 
     def get_overview(self,
                      delay: int = None) -> Overview:
@@ -212,9 +236,10 @@ class OGame:
             planet_name = planet_div.find(class_='planet-name').text.strip()
             galaxy, system, position = extract_numbers(planet_div.find(class_='planet-koords').text)
             planet_coords = Coordinates(galaxy, system, position, CoordsType.planet)
-            planet = Planet(id=planet_id,
-                            name=planet_name,
-                            coords=planet_coords)
+            planet = Planet(
+                id=planet_id,
+                name=planet_name,
+                coords=planet_coords)
             planets.append(planet)
             moon_el = planet_div.find(class_='moonlink')
             if moon_el:
@@ -223,15 +248,17 @@ class OGame:
                 moon_id = join_digits(next(param for param in moon_url_params if 'cp' in param))
                 moon_name = moon_el.img['alt']
                 moon_coords = Coordinates(galaxy, system, position, CoordsType.moon)
-                moon = Planet(id=moon_id,
-                              name=moon_name,
-                              coords=moon_coords)
+                moon = Planet(
+                    id=moon_id,
+                    name=moon_name,
+                    coords=moon_coords)
                 planets.append(moon)
-        return Overview(planets=planets, character_class=character_class)
+        return Overview(
+            planets=planets,
+            character_class=character_class)
 
-    def get_events(self,
-                   delay: int = None) -> List[FleetEvent]:
-        event_list = self._get_event_list(delay=delay)
+    def get_events(self) -> List[FleetEvent]:
+        event_list = self._get_event_list(delay=0)
         event_elements = event_list.findAll(class_='eventFleet')
         events = []
         for event_el in event_elements:
@@ -253,13 +280,14 @@ class OGame:
             dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
             player_id_el = event_el.find('a', class_='sendMail')
             player_id = int(player_id_el['data-playerid']) if player_id_el else None
-            event = FleetEvent(id=event_id,
-                               origin=origin,
-                               dest=dest,
-                               arrival_time=arrival_time,
-                               mission=mission,
-                               return_flight=return_flight,
-                               player_id=player_id)
+            event = FleetEvent(
+                id=event_id,
+                origin=origin,
+                dest=dest,
+                arrival_time=arrival_time,
+                mission=mission,
+                return_flight=return_flight,
+                player_id=player_id)
             events.append(event)
         return events
 
@@ -295,12 +323,13 @@ class OGame:
             slot_elements = movement_soup.find(id='slots').findAll('div', recursive=False)
             used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
             used_expedition_slots, max_expedition_slots = extract_numbers(slot_elements[1].text)
-            return Movement(fleets=[],
-                            used_fleet_slots=used_fleet_slots,
-                            max_fleet_slots=max_fleet_slots,
-                            used_expedition_slots=used_expedition_slots,
-                            max_expedition_slots=max_expedition_slots,
-                            timestamp=timestamp)
+            return Movement(
+                fleets=[],
+                used_fleet_slots=used_fleet_slots,
+                max_fleet_slots=max_fleet_slots,
+                used_expedition_slots=used_expedition_slots,
+                max_expedition_slots=max_expedition_slots,
+                timestamp=timestamp)
         else:
             fleet_slots_el = movement_el.find(class_='fleetSlots')
             expedition_slots_el = movement_el.find(class_='expSlots')
@@ -351,24 +380,26 @@ class OGame:
                 dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
                 fleet_info_el = _find_exactly_one(fleet_details_el, class_='fleetinfo')
                 ships, cargo = parse_fleet_info(fleet_info_el)
-                fleet = FleetMovement(id=fleet_id,
-                                      origin=origin,
-                                      dest=dest,
-                                      departure_time=departure_time,
-                                      arrival_time=arrival_time,
-                                      mission=mission,
-                                      return_flight=return_flight,
-                                      ships=ships,
-                                      cargo=cargo,
-                                      holding=holding,
-                                      holding_time=holding_time)
+                fleet = FleetMovement(
+                    id=fleet_id,
+                    origin=origin,
+                    dest=dest,
+                    departure_time=departure_time,
+                    arrival_time=arrival_time,
+                    mission=mission,
+                    return_flight=return_flight,
+                    ships=ships,
+                    cargo=cargo,
+                    holding=holding,
+                    holding_time=holding_time)
                 fleets.append(fleet)
-            return Movement(fleets=fleets,
-                            used_fleet_slots=used_fleet_slots,
-                            max_fleet_slots=max_fleet_slots,
-                            used_expedition_slots=used_expedition_slots,
-                            max_expedition_slots=max_expedition_slots,
-                            timestamp=timestamp)
+            return Movement(
+                fleets=fleets,
+                used_fleet_slots=used_fleet_slots,
+                max_fleet_slots=max_fleet_slots,
+                used_expedition_slots=used_expedition_slots,
+                max_expedition_slots=max_expedition_slots,
+                timestamp=timestamp)
 
     def get_fleet_dispatch(self,
                            planet: Union[Planet, int],
@@ -379,24 +410,25 @@ class OGame:
         slot_elements = fleet_dispatch_soup.find(id='slots').findAll('div', recursive=False)
         used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
         used_expedition_slots, max_expedition_slots = extract_numbers(slot_elements[1].text)
-        technologies_el = fleet_dispatch_soup.find(id='technologies')
-        if technologies_el:
-            ships = {}
-            for ship in Ship:
-                ship_el = technologies_el.find('li', {'data-technology': ship.id}, class_='technology')
-                amount_el = ship_el.find('span', class_='amount')
-                amount = int(amount_el['data-value'])
-                ships[ship] = amount
-        else:
-            # there are no ships on this planet
-            ships = {}
-        return FleetDispatch(dispatch_token=token,
-                             ships=ships,
-                             used_fleet_slots=used_fleet_slots,
-                             max_fleet_slots=max_fleet_slots,
-                             used_expedition_slots=used_expedition_slots,
-                             max_expedition_slots=max_expedition_slots,
-                             timestamp=timestamp)
+        ship_elements = fleet_dispatch_soup.findAll(class_='technology')
+        ships = {}
+        for ship_el in ship_elements:
+            amount_el = _find_exactly_one(ship_el, class_='amount')
+            ship_id = int(ship_el['data-technology'])
+            ship = Ship.from_id(ship_id)
+            if not ship:
+                logging.warning(f'Missing ship (id={ship_id})')
+                continue
+            amount = int(amount_el['data-value'])
+            ships[ship] = amount
+        return FleetDispatch(
+            dispatch_token=token,
+            ships=ships,
+            used_fleet_slots=used_fleet_slots,
+            max_fleet_slots=max_fleet_slots,
+            used_expedition_slots=used_expedition_slots,
+            max_expedition_slots=max_expedition_slots,
+            timestamp=timestamp)
 
     def send_fleet(self, *,
                    origin: Union[Planet, int],
@@ -495,8 +527,23 @@ class OGame:
                     'return': return_fleet},
             delay=delay)
 
+    def _get_galaxy(self,
+                    planet: Union[Planet, int] = None,
+                    galaxy: int = None,
+                    system: int = None,
+                    delay: int = None):
+        if planet is not None and isinstance(planet, Planet):
+            planet = planet.id
+        return self._get_game_page(
+            params={'page': 'ingame',
+                    'component': 'galaxy',
+                    'cp': planet,
+                    'galaxy': galaxy,
+                    'system': system},
+            delay=delay)
+
     def _get_resources(self,
-                       planet: Union[Planet, int],
+                       planet: Union[Planet, int] = None,
                        delay: int = None):
         if planet is not None and isinstance(planet, Planet):
             planet = planet.id
@@ -636,6 +683,9 @@ class OGame:
             return CoordsType.debris
         else:
             raise ValueError('Failed to parse coordinate type.')
+
+
+# TODO _find_at_most_one
 
 
 def _find_exactly_one(root, raise_exc=True, **kwargs):

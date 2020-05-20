@@ -31,44 +31,16 @@ class Engine:
         self.server_data = server_data
         self.character_class = character_class
 
-    def fuel_consumption(self,
-                         origin: Union[Planet, Coordinates],
-                         destination: Union[Planet, Coordinates],
-                         ships: Dict[Ship, int],
-                         technology: Dict[Technology, int] = None,
-                         fleet_speed: int = 10,
-                         holding_time: int = 0) -> int:
-        """
-        @param origin: origin coordinates
-        @param destination: destination coordinates
-        @param ships: dictionary describing the size of the fleet
-        @param technology: dictionary describing the current technology levels
-        @param fleet_speed: fleet speed (1-10)
-        @param holding_time: holding duration in hours
-        @return: fuel consumption of a flight
-        """
-        distance = self.distance(origin, destination)
-        flight_duration = self.flight_duration(
-            distance=distance,
-            ships=ships,
-            fleet_speed=fleet_speed,
-            technology=technology)
-        fuel_consumption = self.flight_fuel_consumption(
-            distance=distance,
-            ships=ships,
-            flight_duration=flight_duration,
-            holding_time=holding_time,
-            technology=technology)
-        return fuel_consumption
-
     def cargo_capacity(self,
-                       ships: Dict[Ship, int],
+                       ships: Union[Ship, Dict[Ship, int]],
                        technology: Dict[Technology, int] = None) -> int:
         """
-        @param ships: dictionary describing the size of the fleet
+        @param ships: dictionary describing the size of the fleet or a single ship
         @param technology: dictionary describing the current technology levels
         @return: cargo capacity of the entire fleet
         """
+        if isinstance(ships, Ship):
+            ships = {ships: 1}
         if not any(ships.values()):
             raise ValueError('Cannot calculate cargo capacity if there are not ships.')
         hyperspace_technology_level = None

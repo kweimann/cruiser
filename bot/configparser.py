@@ -17,11 +17,15 @@ def parse_bot_config(config):
     sleep_max = bot_config.get('sleep_max')
     min_time_before_attack_to_act = bot_config.get('min_time_before_attack_to_act')
     max_time_before_attack_to_act = bot_config.get('max_time_before_attack_to_act')
+    try_recalling_saved_fleet = bot_config.get('try_recalling_saved_fleet')
+    harvest_expedition_debris = bot_config.get('harvest_expedition_debris')
     return _remove_empty_values({
         'sleep_min': sleep_min,
         'sleep_max': sleep_max,
         'min_time_before_attack_to_act': min_time_before_attack_to_act,
         'max_time_before_attack_to_act': max_time_before_attack_to_act,
+        'try_recalling_saved_fleet': try_recalling_saved_fleet,
+        'harvest_expedition_debris': harvest_expedition_debris
     })
 
 
@@ -45,7 +49,7 @@ def parse_client_config(config):
         if not server:
             raise ValueError(f'Failed to match {universe} ({language}) to any server.')
         server_number = server['number']
-        logging.info(f'Matched {universe} ({language}) to server {server_number}.')
+        logging.debug(f'Matched {universe} ({language}) to server {server_number}.')
     # Parse client parameters
     bot_config = config.get('bot', {})
     request_timeout = bot_config.get('request_timeout')
@@ -100,9 +104,17 @@ def _initialize_listener(name, config):
 
 def _initialize_expedition(id, config):
     origin_galaxy, origin_system, origin_position = _require('origin', config)
-    origin_type = CoordsType.from_name(config.get('origin_type', 'planet'))
+    origin_type_name = config.get('origin_type', 'planet')
+    origin_type = CoordsType.from_name(origin_type_name)
+    if not origin_type:
+        raise ValueError(f'Unknown origin type: {origin_type_name}')
     dest_galaxy, dest_system, dest_position = config.get('dest', [origin_galaxy, origin_system, 16])
-    ships = {Ship.from_name(ship): amount for ship, amount in _require('ships', config).items()}
+    ships = {}
+    for ship_name, amount in _require('ships', config).items():
+        ship = Ship.from_name(ship_name)
+        if not ship:
+            raise ValueError(f'Unknown ship: {ship_name}')
+        ships[ship] = amount
     holding_time = config.get('holding_time', 1)
     repeat = config.get('repeat', 'forever')
     origin = Coordinates(

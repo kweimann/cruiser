@@ -1,10 +1,9 @@
 import dataclasses
 import logging
 import random
-import sys
 import time
 import uuid
-from typing import List, Union, Dict, Tuple
+from typing import List, Union, Dict, Tuple, Optional, Iterable, Set
 
 from bot.eventloop import Scheduler
 from bot.listeners import Listener
@@ -12,11 +11,15 @@ from bot.protocol import (
     WakeUp,
     SendExpedition,
     CancelExpedition,
-    NotifyEscapeScheduled,
-    NotifyFleetEscaped,
+    NotifyHostileEvent,
+    NotifyFleetSaved,
     NotifyFleetRecalled,
     NotifyExpeditionFinished,
-    NotifyExpeditionCancelled
+    NotifyExpeditionCancelled,
+    NotifyWakeUp,
+    NotifySavedFleetRecalled,
+    NotifyPlanetsSafe,
+    NotifyHostileEventRecalled
 )
 from ogame import (
     OGame,
@@ -41,10 +44,26 @@ from ogame.game.model import (
 from ogame.util import ftime
 
 
-class GameState:
-    # TODO: GameState will be probably replaced by a wrapper for the OGame client.
-    #  The wrapper's primary job will be caching results whenever it's possible and reasonable.
+@dataclasses.dataclass(frozen=True)
+class EscapeFlight:
+    dest: Coordinates
+    fleet_speed: int
+    fuel_consumption: int
+    duration: int
+    distance: int
 
+
+@dataclasses.dataclass
+class Expedition:
+    data: SendExpedition
+    cancelled: CancelExpedition = None
+    fleet_id: int = None
+
+    @property
+    def running(self): return self.fleet_id is not None
+
+
+class GameResourceManager:
     """ State of global properties for an account. The state should be valid only for a short amount of time
     e.g. during one wakeup call to avoid inconsistencies due to user's actions.
 
@@ -85,47 +104,37 @@ class GameState:
         return self._research
 
 
-@dataclasses.dataclass
-class EscapeFlight:
-    dest: Coordinates
-    fleet_speed: int
-    fuel_consumption: int
-
-
-@dataclasses.dataclass
-class Expedition:
-    data: SendExpedition
-    cancelled: CancelExpedition = None
-    fleet_id: int = None
-
-    @property
-    def running(self): return self.fleet_id is not None
-
-
 class OGameBot:
     def __init__(self,
                  client: OGame,
                  scheduler: Scheduler,
                  sleep_min: int = 600,  # 10 minutes
                  sleep_max: int = 900,  # 15 minutes
-                 min_time_before_attack_to_act: int = 120,   # 2 minutes
-                 max_time_before_attack_to_act: int = 180):  # 3 minutes
+                 min_time_before_attack_to_act: int = 120,  # 2 minutes
+                 max_time_before_attack_to_act: int = 180,  # 3 minutes
+                 try_recalling_saved_fleet: bool = False,
+                 harvest_expedition_debris: bool = True):
         self.client = client
         self.scheduler = scheduler
         self.sleep_min = sleep_min
         self.sleep_max = sleep_max
         self.min_time_before_attack_to_act = min_time_before_attack_to_act
         self.max_time_before_attack_to_act = max_time_before_attack_to_act
+        self.try_recalling_saved_fleet = try_recalling_saved_fleet
+        self.harvest_expedition_debris = harvest_expedition_debris
 
         self._engine = None
         self._periodic_wakeup_id = None
-        self._retry_event_id = uuid.uuid4().hex
+        self._retry_event_id = uuid4()
         self._exc_retry_delays = [5, 10, 15, 30, 60]  # seconds
         self._exc_count = 0
 
         self._listeners: List[Listener] = []
-        self._last_seen_hostile_events: Dict[int, FleetEvent] = {}  # planet.id -> earliest_hostile_event
+        self._last_scheduled_fs: Optional[Tuple[str, str]] = None  # (id from the scheduler, id from the bot)
+        self._last_seen_hostile_events: Dict[int, FleetEvent] = {}  # fleet_event.id -> fleet_event
         self._expeditions: Dict[str, Expedition] = {}  # expedition.id -> expedition
+        self._saved_fleets: Dict[int, Planet] = {}  # fleet.id -> origin
+        self._expedition_debris: Set[Coordinates] = set()  # [ expedition.dest ]
 
     def start(self):
         if self._engine is None:
@@ -176,17 +185,18 @@ class OGameBot:
             if event.id != self._retry_event_id:
                 return
         try:
-            state = GameState(self.client)
+            self._notify_listeners(NotifyWakeUp())
+            resource_manager = GameResourceManager(self.client)
             # Always get the latest overview.
-            overview = state.get_overview()
+            overview = resource_manager.get_overview()
             # Update the character class in the engine.
             self._engine.character_class = overview.character_class
             # Proceed with doing work.
-            self._handle_hostile_events(state)
-            self._handle_expeditions(state)
+            self._handle_hostile_events(event, resource_manager)
+            self._handle_expeditions(resource_manager)
             # No exception has been thrown, so reset the exception count.
             self._exc_count = 0
-        except Exception:
+        except Exception as e:
             retry_delay_index = min(self._exc_count, len(self._exc_retry_delays) - 1)
             retry_delay = self._exc_retry_delays[retry_delay_index]
             retry_event = WakeUp(self._retry_event_id)
@@ -194,176 +204,354 @@ class OGameBot:
             self._exc_count += 1
             logging.exception(f'Exception thrown {self._exc_count} times during event handling. '
                               f'Retrying in {retry_delay} seconds.')
-            self._notify_listeners_exception()
+            self._notify_listeners_exception(e)
             raise
 
-    def _handle_hostile_events(self, state: GameState):
-        exception_raised = False
-        overview = state.get_overview()
-        events = state.get_events()
-        earliest_hostile_events = get_earliest_hostile_events(events, overview.planets)
-        # Log fleet events.
+    def _handle_hostile_events(self, wakeup: WakeUp, resource_manager: GameResourceManager):
+        overview = resource_manager.get_overview()
+        events = resource_manager.get_events()
+        # Get all hostile fleets.
+        hostile_events = find_fleets(
+            fleets=events,
+            dest=overview.planets,
+            mission=[Mission.attack, Mission.acs_attack])
+        hostile_events = {event.id: event for event in hostile_events}
+        # Get a list of earliest hostile event per planet.
+        hostile_events_per_planet = get_earliest_fleet_per_destination(hostile_events.values())
+        # Get the hostile fleet that arrives first.
+        earliest_hostile_event = get_earliest_fleet(hostile_events.values())
+        # Get a dictionary of the latest friendly arrivals per hostile event. These times are selected based on the
+        #  last incoming fleet to the planet under attack. The bot will try waiting for this fleet before saving
+        #  the planet. If there is no entry for a given hostile event, it means that the bot is free to choose
+        #  when to save the planet.
+        # Note that the following holds:
+        #  max(last_friendly_arrivals[e.id]) <= e.arrival_time
+        last_friendly_arrivals: Dict[int, int] = {}  # hostile_event.id -> last_friendly_arrival
+        def arrival_time(e: FleetEvent): return e.arrival_time
+        for hostile_event in sorted(hostile_events.values(), key=arrival_time):
+            returning_fleets = find_fleets(
+                fleets=events,
+                origin=hostile_event.dest,
+                is_return_flight=True,
+                arrives_after=hostile_event.arrival_time - self.max_time_before_attack_to_act,
+                arrives_before=hostile_event.arrival_time)
+            deployment_fleets = find_fleets(
+                fleets=events,
+                origin=overview.planets,
+                dest=hostile_event.dest,
+                mission=Mission.deployment,
+                arrives_after=hostile_event.arrival_time - self.max_time_before_attack_to_act,
+                arrives_before=hostile_event.arrival_time)
+            incoming_fleets = returning_fleets + deployment_fleets
+            last_incoming_fleet = get_latest_fleet(incoming_fleets)
+            if last_incoming_fleet:
+                last_friendly_arrivals[hostile_event.id] = last_incoming_fleet.arrival_time
+        # Get a copy of previously seen hostile events.
+        last_seen_hostile_events = dict(self._last_seen_hostile_events)
+        # Update last seen hostile events.
+        self._last_seen_hostile_events = hostile_events
+        current_time = now()
+
+        # Notify user about hostile fleets that have been recalled.
+        for previous_hostile_event in last_seen_hostile_events.values():
+            if previous_hostile_event.id not in hostile_events and previous_hostile_event.arrival_time > current_time:
+                planet = match_planet(
+                    coords=previous_hostile_event.dest,
+                    planets=overview.planets)
+                self._notify_listeners(
+                    NotifyHostileEventRecalled(
+                        planet=planet,
+                        hostile_arrival=previous_hostile_event.arrival_time))
+        # Notify user about current events.
         if events:
             logging.debug(f'Fleet events:\n{format_fleet_events(events, overview.planets)}')
-            if not earliest_hostile_events:
+            if hostile_events:
+                for hostile_event in hostile_events.values():
+                    planet = match_planet(
+                        coords=hostile_event.dest,
+                        planets=overview.planets)
+                    previous_event_state = last_seen_hostile_events.get(hostile_event.id)
+                    # Notify user of this hostile event if it was previously not seen,
+                    #  or the opponent has delayed the attack.
+                    if not previous_event_state:
+                        self._notify_listeners(
+                            NotifyHostileEvent(
+                                planet=planet,
+                                hostile_arrival=hostile_event.arrival_time))
+                    elif hostile_event.arrival_time != previous_event_state.arrival_time:
+                        self._notify_listeners(
+                            NotifyHostileEvent(
+                                planet=planet,
+                                hostile_arrival=hostile_event.arrival_time,
+                                previous_hostile_arrival=previous_event_state.arrival_time))
+                    logging.info(f'Hostile fleet arrives at {planet} on {ftime(hostile_event.arrival_time)}')
+            else:
+                if last_seen_hostile_events:
+                    self._notify_listeners(NotifyPlanetsSafe())
                 logging.info('No hostile fleets on sight. Your planets are safe.')
         else:
             logging.info('No fleet movement has been detected.')
-        # Handle hostile events.
-        for planet, earliest_hostile_event in earliest_hostile_events.values():
-            try:
-                earliest_hostile_arrival = earliest_hostile_event.arrival_time
-                logging.info(f'Hostile fleet arrives at {planet} on {ftime(earliest_hostile_arrival)}')
-                # If there is an attack later in the future then schedule an escape event.
-                if earliest_hostile_arrival > now() + self.max_time_before_attack_to_act:
-                    last_seen_hostile_event = self._last_seen_hostile_events.get(planet.id)
-                    # Schedule future escape event only if this hostile event has not been seen before
-                    #  to avoid repeating the same escape event.
-                    if not last_seen_hostile_event or earliest_hostile_arrival != last_seen_hostile_event.arrival_time:
-                        time_before_attack_to_act = random.randint(self.min_time_before_attack_to_act,
-                                                                   self.max_time_before_attack_to_act)
-                        escape_time = earliest_hostile_arrival - time_before_attack_to_act
-                        self.scheduler.pushabs(escape_time, 0, WakeUp())
-                        scheduled_escape_log = NotifyEscapeScheduled(
-                            planet=planet,
-                            hostile_arrival=earliest_hostile_arrival,
-                            escape_time=escape_time)
-                        logging.info(f'Scheduled escape from {planet} on {ftime(escape_time)}')
-                        self._notify_listeners(scheduled_escape_log)
-                # Otherwise attempt to defend the planet if a hostile fleet arrives soon.
+
+        if self._last_scheduled_fs:
+            scheduled_id, wakeup_id = self._last_scheduled_fs
+            # If we are currently not handling this event, then cancel it because we may update our schedule.
+            if wakeup.id != wakeup_id:
+                self.scheduler.cancel(scheduled_id)
+            self._last_scheduled_fs = None
+        # If there is a hostile fleet approaching we have to update our schedule.
+        if earliest_hostile_event:
+            wakeup_times = []
+            # Determine the earliest event that the bot must respond to.
+            for hostile_event in hostile_events.values():
+                hostile_arrival = hostile_event.arrival_time
+                if current_time < hostile_arrival - self.max_time_before_attack_to_act:
+                    # There is plenty of time so schedule a future escape event.
+                    last_friendly_arrival = hostile_arrival - random.randint(self.min_time_before_attack_to_act,
+                                                                             self.max_time_before_attack_to_act)
+                    wakeup_times.append(last_friendly_arrival)
                 else:
-                    technology = state.get_research().technology
-                    resources = self.client.get_resources(planet).amount
-                    # It is important that `get_fleet_dispatch` directly precedes `send_fleet`
-                    #  to make sure the dispatch token remains valid.
-                    fleet_dispatch = self.client.get_fleet_dispatch(planet)
-                    fleet_escaped_log = NotifyFleetEscaped(
-                        origin=planet,
-                        hostile_arrival=earliest_hostile_arrival)
-                    # Make sure there is any fleet on the planet.
-                    if ships_exist(fleet_dispatch.ships):
-                        # Make sure there are free fleet slots.
-                        if fleet_dispatch.free_fleet_slots > 0:
-                            # Search for all possible escape flights.
-                            escape_flights = get_escape_flights(
-                                engine=self._engine,
-                                origin=planet,
-                                destinations=overview.planets,
-                                ships=fleet_dispatch.ships,
-                                technology=technology)
-                            # Why destinations under attack where the hostile fleets arrive
-                            #  before our deployment are not discarded? First, that would not work
-                            #  flawlessly e.g. what if all destinations meet the requirements to be discarded.
-                            #  Second, if need be, escaping fleet might be returned later. In this case,
-                            #  a smart opponent who knows how this bot works will force a return and attempt to snipe
-                            #  the returning fleet. This is possible but chances of this happening are very slim,
-                            #  especially, since this bot is designed to save the fleet if the user fails to do so.
-                            #  In that context, it's the user's responsibility to react to a hostile event first.
-                            #  Furthermore, taking these additional precautions may cause a significantly higher
-                            #  fuel consumption.
-
-                            # Pick the cheapest escape flight if such flight exists.
-                            cheapest_escape_flight = get_cheapest_flight(escape_flights)
-                            if cheapest_escape_flight:
-                                # Store destination in the log.
-                                fleet_escaped_log.destination = match_planet(
-                                    coords=cheapest_escape_flight.dest,
-                                    planets=overview.planets)
-                                # Make sure there is enough fuel to send the fleet.
-                                deuterium = resources[Resource.deuterium]
-                                if deuterium >= cheapest_escape_flight.fuel_consumption:
-                                    # Adjust the available resources by subtracting fuel consumption.
-                                    resources[Resource.deuterium] -= cheapest_escape_flight.fuel_consumption
-                                    # Select which resources will be saved.
-                                    free_cargo_capacity = self._engine.cargo_capacity(
-                                        ships=fleet_dispatch.ships,
-                                        technology=technology)
-                                    cargo = get_cargo(
-                                        resources=resources,
-                                        free_cargo_capacity=free_cargo_capacity)
-                                    # Send fleet to a safe destination.
-                                    self.client.send_fleet(
-                                        origin=planet,
-                                        dest=cheapest_escape_flight.dest,
-                                        ships=fleet_dispatch.ships,
-                                        mission=Mission.deployment,
-                                        fleet_speed=cheapest_escape_flight.fleet_speed,
-                                        resources=cargo,
-                                        fleet_dispatch=fleet_dispatch)
-                                    # Invalidate cache because the game state was altered by sending the fleet.
-                                    movement = state.get_movement(invalidate_cache=True)
-                                    # Look for the corresponding fleet event to make sure the fleet was sent.
-                                    fleets = find_fleets(  # TODO match ships and cargo as well
-                                        fleets=movement.fleets,
-                                        origin=planet,
-                                        dest=cheapest_escape_flight.dest,
-                                        mission=Mission.deployment,
-                                        departs_before=movement.timestamp + 1,
-                                        departs_after=fleet_dispatch.timestamp - 1)
-                                    if len(fleets) == 0:
-                                        fleet_escaped_log.error = 'Failed to find the fleet. ' \
-                                                                  'It may have not been dispatched at all.'
-                                    elif len(fleets) > 1:
-                                        fleet_escaped_log.error = 'Multiple fleets matched.'
-                                else:
-                                    fleet_escaped_log.error = 'Not enough fuel.'
-                            else:
-                                fleet_escaped_log.error = 'No escape route.'
+                    # Hostile fleet is arriving shortly so make sure to pick up incoming fleets if there are any,
+                    #  otherwise schedule a check-up after the attack to assess the situation.
+                    last_friendly_arrival = last_friendly_arrivals.get(hostile_event.id)
+                    if last_friendly_arrival:
+                        # Only wait for the incoming fleets for up to 5 seconds before the hostile arrival.
+                        #  However, if the hostile fleet arrives in less than 5 seconds and there is still
+                        #  a friendly fleet returning, then try to save it too.
+                        if current_time < (hostile_arrival - 5) < (last_friendly_arrival - 1):
+                            wakeup_times.append(hostile_arrival - 5)
                         else:
-                            fleet_escaped_log.error = 'No free fleet slots.'
+                            wakeup_times.append(last_friendly_arrival + 1)
                     else:
-                        fleet_escaped_log.error = 'No ships.'
-                    if fleet_escaped_log.error:
-                        logging.warning(f'Escape from {planet} failed: {fleet_escaped_log.error}')
+                        # We will handle this hostile event further down in the function
+                        #  so schedule a check-up after hostile fleet arrives.
+                        wakeup_times.append(hostile_arrival + 1)
+            # Pick the earliest wake-up time and make sure it is in the future.
+            earliest_wakeup_time = min([t for t in wakeup_times if current_time < t], default=None)
+            if earliest_wakeup_time:
+                wakeup_id = uuid4()
+                scheduled_id = self.scheduler.pushabs(
+                    abstime=earliest_wakeup_time,
+                    priority=0,
+                    data=WakeUp(wakeup_id))
+                self._last_scheduled_fs = (scheduled_id, wakeup_id)
+                logging.info(f'Defensive wake-up now scheduled on {ftime(earliest_wakeup_time)}')
+
+        # Handle immediate hostile events.
+        for hostile_event in sorted(hostile_events_per_planet, key=arrival_time):
+            # Mimic the scheduling of an escape flight to determine the time of fs.
+            hostile_arrival = hostile_event.arrival_time
+            earliest_save_time = hostile_arrival - self.max_time_before_attack_to_act
+            if current_time < earliest_save_time:
+                fleet_save_time = earliest_save_time
+            else:
+                last_friendly_arrival = last_friendly_arrivals.get(hostile_event.id)
+                if last_friendly_arrival:
+                    if current_time < (hostile_arrival - 5) < (last_friendly_arrival - 1):
+                        fleet_save_time = hostile_arrival - 5
                     else:
-                        logging.info(f'Escape from {planet} was successful')
-                    self._notify_listeners(fleet_escaped_log)
+                        fleet_save_time = last_friendly_arrival + 1
+                else:
+                    fleet_save_time = earliest_save_time
+            if current_time < fleet_save_time:
+                continue  # ignore this event for now if it is not the time to save yet
+            planet = match_planet(
+                coords=hostile_event.dest,
+                planets=overview.planets)
+            fs_notification = NotifyFleetSaved(
+                origin=planet,
+                hostile_arrival=hostile_arrival)
+            # Get additional information to better prepare escape flights.
+            technology = resource_manager.get_research().technology
+            resources = self.client.get_resources(planet).amount
+            deuterium = resources[Resource.deuterium]
+            # Go to the fleet dispatch page. It is important that `get_fleet_dispatch`
+            #  directly precedes `send_fleet` to make sure the dispatch token remains valid.
+            fleet_dispatch = self.client.get_fleet_dispatch(planet)
+            # Make sure there are any ships on the planet.
+            if not ships_exist(fleet_dispatch.ships):
+                logging.warning(f'Escape from {planet} failed because there are no ships.')
+                fs_notification.error = 'No ships on the planet.'
+                self._notify_listeners(fs_notification)
+                continue
+            # Make sure there are free fleet slots.
+            if fleet_dispatch.free_fleet_slots == 0:
+                logging.warning(f'Escape from {planet} failed because there are no free fleet slots.')
+                fs_notification.error = 'No free fleet slots.'
+                self._notify_listeners(fs_notification)
+                continue
+            # Search for all possible escape flights.
+            escape_flights = get_escape_flights(
+                engine=self._engine,
+                origin=planet,
+                destinations=overview.planets,
+                ships=fleet_dispatch.ships,
+                technology=technology)
+            # Make sure there are any escape flights.
+            if not escape_flights:
+                logging.warning(f'Escape from {planet} failed because there are no escape routes.')
+                fs_notification.error = 'No escape route.'
+                self._notify_listeners(fs_notification)
+                continue
+            # Sort escape flight according to predefined safety rules (safest first).
+            escape_flights = sort_escape_flights_by_safety(
+                escape_flights=escape_flights,
+                hostile_events=list(hostile_events.values()),
+                max_time_before_attack_to_act=self.max_time_before_attack_to_act)
+            # From the sorted list of flights pick the first for which there is enough fuel.
+            escape_flight = next((flight for flight in escape_flights
+                                  if flight.fuel_consumption <= deuterium), None)
+            # Make sure there is enough fuel.
+            if not escape_flight:
+                logging.warning(f'Escape from {planet} failed because there is not enough fuel.')
+                fs_notification.error = 'Not enough fuel.'
+                self._notify_listeners(fs_notification)
+                continue
+            # A viable escape route has been found so send the fleet now.
+            # Store destination in the log.
+            destination = match_planet(
+                coords=escape_flight.dest,
+                planets=overview.planets)
+            fs_notification.destination = destination
+            # Adjust the available resources by subtracting fuel consumption.
+            resources[Resource.deuterium] -= escape_flight.fuel_consumption
+            # Select which resources will be saved.
+            free_cargo_capacity = self._engine.cargo_capacity(
+                ships=fleet_dispatch.ships,
+                technology=technology)
+            cargo = get_cargo(
+                resources=resources,
+                free_cargo_capacity=free_cargo_capacity)
+            # Send fleet to a safe destination.
+            self.client.send_fleet(
+                origin=planet,
+                dest=escape_flight.dest,
+                ships=fleet_dispatch.ships,
+                mission=Mission.deployment,
+                fleet_speed=escape_flight.fleet_speed,
+                resources=cargo,
+                fleet_dispatch=fleet_dispatch)
+            # Invalidate cache because the game state was altered by sending the fleet.
+            movement = resource_manager.get_movement(invalidate_cache=True)
+            # Look for the corresponding fleet event to make sure the fleet was sent.
+            fleets = find_fleets(
+                fleets=movement.fleets,
+                origin=planet,
+                dest=escape_flight.dest,
+                mission=Mission.deployment,
+                ships=fleet_dispatch.ships,
+                cargo=cargo,
+                departs_before=movement.timestamp + 1,
+                departs_after=fleet_dispatch.timestamp - 1)
+            if len(fleets) == 0:
+                logging.warning('Failed to find saved fleet. It may have not been dispatched at all.')
+                fs_notification.error = 'Failed to find the fleet. It may have not been dispatched at all.'
+                self._notify_listeners(fs_notification)
+                continue
+            elif len(fleets) > 1:
+                logging.warning('Failed to find saved fleet. Multiple fleets were matched.')
+                fs_notification.error = 'Multiple fleets matched.'
+                self._notify_listeners(fs_notification)
+                continue
+            # The fleet has been successfully saved.
+            if self.try_recalling_saved_fleet:
+                saved_fleet = fleets[0]
+                self._saved_fleets[saved_fleet.id] = planet
+            logging.info(f'Fleet successfully escaped from {planet} to {destination}')
+            self._notify_listeners(fs_notification)
 
-                    # Fleets returning to a planet under attack are not considered during fleet saving
-                    #  i.e. bot doesn't wait for returning fleets. As long as returning fleet is not being
-                    #  deliberately sniped by an opponent, the chances of fleet returning at a time between the
-                    #  attack and fleet save are quite low.
-
-                    # Get own fleet movement in case a fleet needs to be returned.
-                    movement = state.get_movement()
-                    deployment_fleets = find_fleets(
+        # Return deployment fleets if the destination is under attack and the fleet arrives
+        #  within 5 seconds of the attack. This ensures that if the opponent delays the attack,
+        #  she will not be able to snipe the incoming fleet.
+        for hostile_event in sorted(hostile_events_per_planet, key=arrival_time):
+            hostile_arrival = hostile_event.arrival_time
+            earliest_save_time = hostile_arrival - self.max_time_before_attack_to_act
+            if current_time < earliest_save_time:
+                continue  # ignore this event for now if it is not the time to save yet
+            planet = match_planet(
+                coords=hostile_event.dest,
+                planets=overview.planets)
+            movement = resource_manager.get_movement()
+            deployment_fleets = find_fleets(
+                fleets=movement.fleets,
+                origin=overview.planets,
+                dest=planet,
+                mission=Mission.deployment,
+                is_return_flight=False)
+            for deployment_fleet in deployment_fleets:
+                # Note that `arrival_time` in the fleet movement means the arrival on the origin planet.
+                deployment_arrival = deployment_fleet.departure_time + deployment_fleet.flight_duration
+                if (hostile_arrival - 5) <= deployment_arrival <= (hostile_arrival + 5):
+                    movement = resource_manager.get_movement(return_fleet=deployment_fleet)
+                    # Make sure that the fleet was returned.
+                    deployment_fleet = find_fleets(
                         fleets=movement.fleets,
-                        origin=overview.planets,
-                        dest=planet,
-                        mission=Mission.deployment)
-                    for fleet in deployment_fleets:
-                        # Return deployment fleets if the destination is under attack and the fleet arrives
-                        #  before the next wake up (+ maximum time the bot has to act in case of an attack).
-                        #  This ensures that if the opponent delays the attack,
-                        #  she will not be able to snipe the incoming fleet.
-                        next_wakeup = now() + self.sleep_max + self.max_time_before_attack_to_act
-                        if not fleet.return_flight and fleet.arrival_time <= next_wakeup:
-                            movement = state.get_movement(return_fleet=fleet)
-                            # Make sure that fleet was sent.
-                            fleet = find_fleets(movement.fleets, id=fleet.id)
-                            fleet_recalled_log = NotifyFleetRecalled(
-                                origin=match_planet(fleet.origin, overview.planets),
-                                destination=match_planet(fleet.dest, overview.planets),
-                                hostile_arrival=earliest_hostile_arrival)
-                            if fleet.return_flight:
-                                logging.info(f'Recalling fleet {fleet.id} was successful.')
-                            else:
-                                fleet_recalled_log.error = 'Failed to return fleet.'
-                                logging.warning(f'Failed to return fleet {fleet.id}.')
-                            self._notify_listeners(fleet_recalled_log)
-            except Exception as e:
-                logging.exception(f"Exception occurred while handling hostile events on {planet}")
-                self._notify_listeners_exception(e)
-                exception_raised = True
-        # Update the earliest seen hostile events.
-        self._last_seen_hostile_events = {planet.id: event for planet, event in earliest_hostile_events.values()}
-        if exception_raised:
-            raise ValueError('Exceptions occurred during event handling.')
+                        id=deployment_fleet.id)
+                    fleet_recalled_notification = NotifyFleetRecalled(
+                        origin=match_planet(deployment_fleet.origin, overview.planets),
+                        destination=match_planet(deployment_fleet.dest, overview.planets),
+                        hostile_arrival=hostile_arrival)
+                    if deployment_fleet.return_flight:
+                        logging.info(f'Recalling deployment fleet to {planet} was successful.')
+                    else:
+                        fleet_recalled_notification.error = 'Failed to return fleet.'
+                        logging.warning(f'Failed to recall deployment fleet to {planet}.')
+                    self._notify_listeners(fleet_recalled_notification)
 
-    def _handle_expeditions(self, state: GameState):
-        overview = state.get_overview()
-        events = state.get_events()
-        movement = state.get_movement()
+        # Try recalling saved fleets. The requirement is that once recalled, the fleet must arrive
+        #  in less than `sleep_min` time. Thus, the bot only handles short-term recalling. This is to ensure
+        #  that the fleet can be properly saved in the future.
+        # Operate on a copy to allow mutation of the original.
+        for saved_fleet_id, origin in dict(self._saved_fleets).items():
+            incoming_hostile_fleets = find_fleets(
+                fleets=list(hostile_events.values()),
+                dest=origin)
+            # Make sure that the origin is not under attack
+            if incoming_hostile_fleets:
+                # Wait for the next wake-up to see whether fleet can be recalled.
+                continue
+            movement = resource_manager.get_movement()
+            saved_fleet = find_fleets(
+                fleets=movement.fleets,
+                id=saved_fleet_id)
+            fs_recalled_notification = NotifySavedFleetRecalled(origin=origin)
+            # Make sure that the fleet is still flying.
+            if not saved_fleet:
+                self._saved_fleets.pop(saved_fleet_id)
+                logging.warning(f'Fleet escaping from {origin} is not flying anymore.')
+                fs_recalled_notification.error = 'Fleet not flying anymore.'
+                self._notify_listeners(fs_recalled_notification)
+                continue
+            # Make sure that fleet is not already returning.
+            if saved_fleet.return_flight:
+                self._saved_fleets.pop(saved_fleet_id)
+                logging.warning(f'Fleet escaping from {origin} is already returning.')
+                fs_recalled_notification.error = 'Fleet already returning.'
+                self._notify_listeners(fs_recalled_notification)
+                continue
+            # Make sure that if the fleet is returned, it will arrive in less than `sleep_min` seconds.
+            current_flight_duration = now() - saved_fleet.departure_time
+            if current_flight_duration > self.sleep_min:
+                self._saved_fleets.pop(saved_fleet_id)
+                logging.warning(f'Cannot recall fleet escaping from {origin} because it would arrive too late.')
+                fs_recalled_notification.error = 'Fleet would arrive too late.'
+                self._notify_listeners(fs_recalled_notification)
+                continue
+            # If all the above requirements are met, the fleet can be safely returned
+            movement = resource_manager.get_movement(return_fleet=saved_fleet_id)
+            # Make sure that fleet was returned.
+            saved_fleet = find_fleets(movement.fleets, id=saved_fleet_id)
+            if saved_fleet.return_flight:
+                self._saved_fleets.pop(saved_fleet_id)
+                logging.info(f'Fleet that escaped from {origin} was successfully recalled.')
+            else:
+                logging.warning(f'Failed to recall fleet that escaped from {origin}.')
+                fs_recalled_notification.error = 'Failed to recall fleet.'
+            self._notify_listeners(fs_recalled_notification)
+
+    def _handle_expeditions(self, resource_manager: GameResourceManager):
+        overview = resource_manager.get_overview()
+        events = resource_manager.get_events()
+        movement = resource_manager.get_movement()
         # Find finished expeditions based on the current movement.
         finished_expeditions = [expedition for expedition in self._expeditions.values()
                                 if not find_fleets(movement.fleets, id=expedition.fleet_id)
@@ -376,7 +564,7 @@ class OGameBot:
                     fleet = find_fleets(movement.fleets, id=expedition.fleet_id)
                     if not fleet.holding and not fleet.return_flight:
                         # Recall expedition fleet.
-                        movement = state.get_movement(return_fleet=expedition.fleet_id)
+                        movement = resource_manager.get_movement(return_fleet=expedition.fleet_id)
                         fleet = find_fleets(movement.fleets, id=expedition.fleet_id)
                         fleet_returned = fleet.return_flight
                     if fleet_returned:
@@ -418,12 +606,7 @@ class OGameBot:
                     if fleet.mission == Mission.expedition
                     and fleet.id not in assigned_fleet_ids]
 
-        # Find any hostile events. They will be considered when sending new expeditions.
-        earliest_hostile_events = get_earliest_hostile_events(events, overview.planets)
-        # Try running as many new expeditions as possible.
-        for expedition in list(self._expeditions.values()):  # iterate over a copy to allow mutation of dict
-            if expedition.running:
-                continue  # expedition is already running so we don't have to do anything
+        for expedition in self._expeditions.values():
             # Attempt to match this expedition event with any unassigned expedition fleet.
             unassigned_expedition_fleets = get_unassigned_expedition_fleets(
                 fleets=movement.fleets,
@@ -433,17 +616,14 @@ class OGameBot:
                 origin=expedition.data.origin,
                 dest=expedition.data.dest,
                 mission=Mission.expedition,
-                ships=expedition.data.ships,
-            )
+                ships=expedition.data.ships)
             if matched_unassigned_expedition_fleet:
                 expedition_fleet = matched_unassigned_expedition_fleet[0]
                 expedition.fleet_id = expedition_fleet.id
                 logging.info(f'Expedition has been matched with a fleet: {expedition.data}')
-                continue
-            # Make sure there are enough slots to send the expedition fleet.
-            if movement.free_fleet_slots == 0 or movement.free_expedition_slots == 0:
-                logging.warning(f'No free slots for expeditions.')
-                break
+
+        # Try running as many new expeditions as possible.
+        for expedition in list(self._expeditions.values()):  # operate on a copy to allow mutation of the original
             planet = match_planet(expedition.data.origin, overview.planets)
             if not planet:
                 # Expedition is invalid because of wrong origin (not one of user's planets).
@@ -454,27 +634,39 @@ class OGameBot:
                     error='Invalid expedition origin.')
                 self._notify_listeners(expedition_log)
                 continue
+            if expedition.running:
+                continue  # expedition is already running so we don't have to do anything
+            # Make sure there are enough slots to send the expedition fleet.
+            if movement.free_fleet_slots == 0 or movement.free_expedition_slots == 0:
+                logging.warning(f'No free slots for expeditions.')
+                break
             # Expeditions from planets under attack will be postponed.
-            if planet.id in earliest_hostile_events:
+            incoming_hostile_fleets = find_fleets(
+                fleets=events,
+                dest=planet,
+                mission=[Mission.attack, Mission.acs_attack])
+            if incoming_hostile_fleets:
                 logging.warning(f'Origin is currently under attack. Postponing expedition: {expedition.data}')
                 continue
+            # Get additional information to better prepare the expeditions.
+            technology = resource_manager.get_research().technology
+            resources = self.client.get_resources(planet).amount
+            # Check if the required ships are available.
+            fleet_dispatch = self.client.get_fleet_dispatch(planet)
+            if not enough_ships(available_ships=fleet_dispatch.ships, required_ships=expedition.data.ships):
+                logging.warning(f'The required ships are not available. Postponing expedition: {expedition.data}')
+                continue
             # Check if there is enough fuel to make the flight.
-            technology = state.get_research().technology
-            fuel_consumption = self._engine.fuel_consumption(
+            fuel_consumption = get_fuel_consumption(
+                engine=self._engine,
                 origin=planet,
                 destination=expedition.data.dest,
                 ships=expedition.data.ships,
                 technology=technology,
                 holding_time=expedition.data.holding_time)
-            resources = self.client.get_resources(planet).amount
             deuterium = resources[Resource.deuterium]
             if deuterium < fuel_consumption:
                 logging.warning(f'Not enough fuel to make the flight. Postponing expedition: {expedition.data}')
-                continue
-            # Check if the required ships are available.
-            fleet_dispatch = self.client.get_fleet_dispatch(planet)
-            if not enough_ships(available_ships=fleet_dispatch.ships, required_ships=expedition.data.ships):
-                logging.warning(f'The required ships are not available. Postponing expedition: {expedition.data}')
                 continue
             # Send fleet for expeditions. If an exception is thrown by either `send_fleet`
             #  or `get_movement` then this expedition will not be tracked at first - bot will
@@ -487,7 +679,7 @@ class OGameBot:
                 holding_time=expedition.data.holding_time,
                 fleet_dispatch=fleet_dispatch)
             # Invalidate cache because the game state was altered by sending the fleet.
-            movement = state.get_movement(invalidate_cache=True)
+            movement = resource_manager.get_movement(invalidate_cache=True)
             # Look for the corresponding fleet event to make sure the fleet was sent.
             unassigned_expedition_fleets = get_unassigned_expedition_fleets(
                 fleets=movement.fleets,
@@ -520,25 +712,58 @@ class OGameBot:
                     error='Multiple fleets matched this expedition.')
                 self._notify_listeners(expedition_log)
 
-    def _notify_listeners(self, log):
+    def _notify_listeners(self, notification):
         """ Notify listeners about actions taken. """
         for listener in self._listeners:
-            listener.notify(log)
+            listener.notify(notification)
 
-    def _notify_listeners_exception(self, e=None):
+    def _notify_listeners_exception(self, e):
         """ Notify listeners about an exception. By default the last thrown exception is reported. """
-        if e is None:
-            e = sys.exc_info()
-        elif isinstance(e, Exception):
-            exc_type = type(e)
-            exc_tb = e.__traceback__
-            e = (exc_type, e, exc_tb)
         for listener in self._listeners:
             listener.notify_exception(e)
 
     @property
     def _retrying_after_exception(self):
         return self._exc_count > 0
+
+
+def sort_escape_flights_by_safety(escape_flights: List[EscapeFlight],
+                                  hostile_events: List[FleetEvent],
+                                  max_time_before_attack_to_act: int):
+    """ Sort escape flights according to criteria that ensure a safe flight. """
+    def safety(flight: EscapeFlight):  # lower is better
+        # Why all destinations under attack, where the hostile fleets arrive
+        #  before our deployment, are not discarded? First, that would not work
+        #  flawlessly e.g. what if all destinations meet the requirements to be discarded.
+        #  Second, if need be, escaping fleet might be returned later. In this case,
+        #  a smart opponent who knows how this bot works will force a return and attempt to snipe
+        #  the returning fleet. This is possible but chances of this happening are very slim,
+        #  especially, since this bot is designed to save the fleet if the user fails to do so.
+        #  In that context, it's the user's responsibility to react to a hostile event first.
+        #  Furthermore, taking these additional precautions may cause a significantly higher
+        #  fuel consumption.
+        incoming_hostile_fleets = find_fleets(
+            fleets=hostile_events,
+            dest=flight.dest)
+        earliest_hostile_fleet = get_earliest_fleet(incoming_hostile_fleets)
+        if earliest_hostile_fleet:
+            # Make sure escaping fleet arrives at destination that is under attack only if
+            #  it will arrive before the escape from the destination is handled.
+            # This is only relevant for planets with moons. In any other case fleet will be sent
+            #  to a planet even if it under attack.
+            arrival_at_destination = current_time + flight.duration
+            earliest_save_time = earliest_hostile_fleet.arrival_time - max_time_before_attack_to_act
+            hostile_event_before_arrival = earliest_save_time < arrival_at_destination
+        else:
+            hostile_event_before_arrival = False
+        return (hostile_event_before_arrival if flight.distance == 5 else False,
+                flight.distance,  # closer destinations are preferred
+                flight.dest.type == CoordsType.planet,  # moons are preferred
+                # prefer faster flights if flying between planet and moon in the same system position,
+                #  otherwise prefer lesser fuel consumption
+                flight.duration if flight.distance == 5 else flight.fuel_consumption)
+    current_time = now()
+    return sorted(escape_flights, key=safety)
 
 
 def get_escape_flights(engine: Engine,
@@ -555,18 +780,57 @@ def get_escape_flights(engine: Engine,
             destination = destination.coords
         if origin != destination:
             for fleet_speed in range(10):
-                fuel_consumption = engine.fuel_consumption(
-                    origin=origin,
-                    destination=destination,
+                distance = engine.distance(origin, destination)
+                flight_duration = engine.flight_duration(
+                    distance=distance,
                     ships=ships,
-                    technology=technology,
-                    fleet_speed=fleet_speed + 1)
+                    fleet_speed=fleet_speed + 1,
+                    technology=technology)
+                fuel_consumption = engine.flight_fuel_consumption(
+                    distance=distance,
+                    ships=ships,
+                    flight_duration=flight_duration,
+                    technology=technology)
                 escape_flight = EscapeFlight(
                     dest=destination,
                     fleet_speed=fleet_speed + 1,
-                    fuel_consumption=fuel_consumption)
+                    fuel_consumption=fuel_consumption,
+                    duration=flight_duration,
+                    distance=distance)
                 escape_flights.append(escape_flight)
     return escape_flights
+
+
+def get_fuel_consumption(engine,
+                         origin: Union[Planet, Coordinates],
+                         destination: Union[Planet, Coordinates],
+                         ships: Dict[Ship, int],
+                         technology: Dict[Technology, int] = None,
+                         fleet_speed: int = 10,
+                         holding_time: int = 0) -> int:
+    """
+    @param engine: game engine
+    @param origin: origin coordinates
+    @param destination: destination coordinates
+    @param ships: dictionary describing the size of the fleet
+    @param technology: dictionary describing the current technology levels
+    @param fleet_speed: fleet speed (1-10)
+    @param holding_time: holding duration in hours
+    @return: fuel consumption of a flight
+    """
+    distance = engine.distance(origin, destination)
+    flight_duration = engine.flight_duration(
+        distance=distance,
+        ships=ships,
+        fleet_speed=fleet_speed,
+        technology=technology)
+    fuel_consumption = engine.flight_fuel_consumption(
+        distance=distance,
+        ships=ships,
+        flight_duration=flight_duration,
+        holding_time=holding_time,
+        technology=technology)
+    return fuel_consumption
 
 
 def get_cargo(resources: Dict[Resource, int],
@@ -627,28 +891,26 @@ def find_fleets(fleets: List[Union[FleetEvent, FleetMovement]],
             and (is_return_flight is None or fleet.return_flight == is_return_flight)]
 
 
-def get_earliest_hostile_events(events: List[FleetEvent],
-                                planets: List[Planet]) -> Dict[int, Tuple[Planet, FleetEvent]]:
-    """ Get earliest hostile event for each planet. """
-    earliest_hostile_events = {}
-    for planet in planets:
-        hostile_events = find_fleets(events, dest=planet, mission=[Mission.attack, Mission.acs_attack])
-        if hostile_events:
-            earliest_hostile_event = get_earliest_fleet(hostile_events)
-            earliest_hostile_events[planet.id] = (planet, earliest_hostile_event)
-    return earliest_hostile_events
+def get_earliest_fleet_per_destination(
+        fleets: Iterable[Union[FleetEvent, FleetMovement]]) -> List[Union[FleetEvent, FleetMovement]]:
+    """ For each destination get the fleet that arrives first. """
+    destinations = {}
+    for fleet in fleets:
+        prev_fleet = destinations.get(fleet.dest)
+        if not prev_fleet or fleet.arrival_time < prev_fleet.arrival_time:
+            destinations[fleet.dest] = fleet
+    return list(destinations.values())
 
 
-def get_earliest_fleet(fleets: List[Union[FleetEvent, FleetMovement]]) -> Union[FleetEvent, FleetMovement]:
+def get_earliest_fleet(
+        fleets: Iterable[Union[FleetEvent, FleetMovement]]) -> Optional[Union[FleetEvent, FleetMovement]]:
     """ Get the fleet that is arriving first. """
-    return min(fleets, key=lambda fleet: fleet.arrival_time) if fleets else None
+    return min(fleets, key=lambda fleet: fleet.arrival_time, default=None)
 
 
-def get_cheapest_flight(flights: List[EscapeFlight]) -> EscapeFlight:
-    """ Get flight which lowest fuel consumption and preferably moons over planets. """
-    def priority(flight: EscapeFlight): return (-flight.fuel_consumption,
-                                                flight.dest.type == CoordsType.moon)
-    return max(flights, key=priority) if flights else None
+def get_latest_fleet(fleets: Iterable[Union[FleetEvent, FleetMovement]]) -> Optional[Union[FleetEvent, FleetMovement]]:
+    """ Get the fleet that is arriving last. """
+    return max(fleets, key=lambda fleet: fleet.arrival_time, default=None)
 
 
 def ships_exist(ships: Dict[Ship, int]) -> bool:
@@ -674,8 +936,9 @@ def match_planet(coords: Coordinates, planets: List[Planet]) -> Planet:
 def format_fleet_events(events: List[FleetEvent], planets: List[Planet] = None) -> str:
     def format_event(event: FleetEvent):
         mission = f'{event.mission}{" (R)" if event.return_flight else ""}'
-        return f'{ftime(event.arrival_time)} | {mission:<16} | ' \
-               f'{match_planet(event.origin, planets) or event.origin} -> ' \
+        direction = '<-' if event.return_flight else '->'
+        return f'  {ftime(event.arrival_time)} | {mission:<16} | ' \
+               f'{match_planet(event.origin, planets) or event.origin} {direction} ' \
                f'{match_planet(event.dest, planets) or event.dest}'
 
     events_string = '\n'.join(map(format_event, events))
@@ -683,3 +946,6 @@ def format_fleet_events(events: List[FleetEvent], planets: List[Planet] = None) 
 
 
 def now(): return round(time.time())
+
+
+def uuid4(): return uuid.uuid4().hex

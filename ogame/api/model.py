@@ -2,7 +2,7 @@ import dataclasses
 from typing import List
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Player:
     id: int
     name: str
@@ -10,21 +10,21 @@ class Player:
     alliance_id: int = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Moon:
     id: int
     name: str
     size: int
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(order=True, frozen=True)
 class Coordinates:
     galaxy: int
     system: int
     position: int
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Planet:
     id: int
     player_id: int
@@ -33,14 +33,14 @@ class Planet:
     moon: Moon = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Highscore:
     player_id: int
     position: int
     score: int
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Alliance:
     id: int
     name: str
@@ -52,7 +52,7 @@ class Alliance:
     open: bool = None
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ServerData:
     name: str
     number: int
