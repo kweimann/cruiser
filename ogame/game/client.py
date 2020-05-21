@@ -90,6 +90,7 @@ class OGame:
         self._account = None
         self._server_url = None
         self._tech_dictionary = None
+        self._server_data = None
         self._last_request_time = 0
 
     @property
@@ -97,6 +98,10 @@ class OGame:
         return OGameAPI(
             server_number=self.server_number,
             server_language=self.language)
+
+    @property
+    def server_data(self):
+        return self._server_data
 
     def login(self) -> None:
         # Get PHPSESSID token used in every request.
@@ -132,6 +137,9 @@ class OGame:
         #  Note that we assume that the dictionary won't change.
         if self._tech_dictionary is None:
             self._tech_dictionary = self.api.get_localization()['technologies']
+        # Cache server data.
+        if self._server_data is None:
+            self._server_data = self.api.get_server_data()['server_data']
 
     def get_research(self,
                      delay: int = None) -> Research:
@@ -342,8 +350,10 @@ class OGame:
                 arrival_time = int(fleet_details_el['data-arrival-time'])
                 return_flight = str2bool(fleet_details_el['data-return-flight']) or False
                 mission = Mission(int(fleet_details_el['data-mission-type']))
-                origin_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='origin').img['title']))
-                dest_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='destination').img['title']))
+                origin_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='origin').img['title']),
+                                              tz_offset=self.server_data.timezone_offset)
+                dest_time = tuple2timestamp(extract_numbers(fleet_details_el.find(class_='destination').img['title']),
+                                            tz_offset=self.server_data.timezone_offset)
                 if return_flight:
                     flight_duration = origin_time - dest_time
                     departure_time = dest_time - flight_duration

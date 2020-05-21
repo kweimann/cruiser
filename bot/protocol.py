@@ -30,6 +30,16 @@ class CancelExpedition:
 
 
 @dataclasses.dataclass
+class NotifyStarted:
+    pass
+
+
+@dataclasses.dataclass
+class NotifyStopped:
+    pass
+
+
+@dataclasses.dataclass
 class NotifyWakeUp:
     pass
 

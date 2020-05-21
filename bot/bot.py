@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import uuid
-from typing import List, Union, Dict, Tuple, Optional, Iterable, Set
+from typing import List, Union, Dict, Tuple, Optional, Iterable
 
 from bot.eventloop import Scheduler
 from bot.listeners import Listener
@@ -19,7 +19,9 @@ from bot.protocol import (
     NotifyWakeUp,
     NotifySavedFleetRecalled,
     NotifyPlanetsSafe,
-    NotifyHostileEventRecalled
+    NotifyHostileEventRecalled,
+    NotifyStarted,
+    NotifyStopped
 )
 from ogame import (
     OGame,
@@ -134,11 +136,10 @@ class OGameBot:
         self._last_seen_hostile_events: Dict[int, FleetEvent] = {}  # fleet_event.id -> fleet_event
         self._expeditions: Dict[str, Expedition] = {}  # expedition.id -> expedition
         self._saved_fleets: Dict[int, Planet] = {}  # fleet.id -> origin
-        self._expedition_debris: Set[Coordinates] = set()  # [ expedition.dest ]
 
     def start(self):
         if self._engine is None:
-            server_data = self.client.api.get_server_data()['server_data']
+            server_data = self.client.server_data or self.client.api.get_server_data()['server_data']
             self._engine = Engine(server_data)
         if self._periodic_wakeup_id is None:
             def random_sleep_duration(): return random.uniform(self.sleep_min, self.sleep_max)
@@ -147,10 +148,12 @@ class OGameBot:
                 priority=0,
                 data=WakeUp(),
                 period=random_sleep_duration)
+            self._notify_listeners(NotifyStarted())
 
     def stop(self):
         self.scheduler.cancel(self._periodic_wakeup_id)
         self._periodic_wakeup_id = None
+        self._notify_listeners(NotifyStopped())
 
     def add_listener(self, listener):
         self._listeners.append(listener)

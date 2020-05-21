@@ -3,7 +3,7 @@ import logging
 import requests
 import yaml
 
-from bot.listeners import TelegramListener
+from bot.listeners import TelegramListener, AlertListener
 from bot.protocol import SendExpedition
 from ogame.game.const import Ship, CoordsType
 from ogame.game.model import Coordinates
@@ -98,6 +98,8 @@ def load_config(file):
 def _initialize_listener(name, config):
     if name == 'telegram':
         return TelegramListener(**config)
+    elif name == 'alert':
+        return AlertListener(**config)
     else:
         raise ValueError(f'Unknown listener: {name}')
 

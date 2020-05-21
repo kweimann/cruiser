@@ -1,6 +1,8 @@
 import logging
+import os.path
 
 import requests
+import simpleaudio as sa
 
 from bot.protocol import (
     NotifyHostileEvent,
@@ -11,7 +13,9 @@ from bot.protocol import (
     NotifyWakeUp,
     NotifySavedFleetRecalled,
     NotifyPlanetsSafe,
-    NotifyHostileEventRecalled
+    NotifyHostileEventRecalled,
+    NotifyStarted,
+    NotifyStopped
 )
 from ogame.util import ftime
 
@@ -65,6 +69,37 @@ class TelegramListener(Listener):
         return f'https://api.telegram.org/bot{self.api_token}'
 
 
+class AlertListener(Listener):
+    def __init__(self, wakeup_wav=None, error_wav=None):
+        self._check_wav_file(wakeup_wav)
+        self._check_wav_file(error_wav)
+        self.wakeup_wav = wakeup_wav
+        self.error_wav = error_wav
+
+    def notify(self, notification):
+        if self.wakeup_wav and isinstance(notification, NotifyWakeUp):
+            self._play_async(self.wakeup_wav)
+
+    def notify_exception(self, exception):
+        if self.error_wav:
+            self._play_async(self.error_wav)
+
+    @staticmethod
+    def _play_async(wav_file):
+        sa.WaveObject.from_wave_file(wav_file).play()
+
+    @staticmethod
+    def _check_wav_file(file):
+        if file is not None:
+            if not os.path.exists(file):
+                raise ValueError(f'Audio file does not exists: {file}')
+            if not os.path.isfile(file):
+                raise ValueError(f'Path is not a file: {file}')
+            _, ext = os.path.splitext(file)
+            if ext != '.wav':
+                raise ValueError(f'Only wave files (.wav) are supported: {file}')
+
+
 def parse_notification(notif):
     if isinstance(notif, NotifyHostileEvent):
         if notif.previous_hostile_arrival:
@@ -109,6 +144,10 @@ def parse_notification(notif):
             return f'Failed to recall fleet escaping from `{notif.origin}`: `{notif.error}`'
         else:
             return f'Fleet escaping from `{notif.origin}` is now successfully recalled.'
+    elif isinstance(notif, NotifyStarted):
+        return 'Cruiser is active.'
+    elif isinstance(notif, NotifyStopped):
+        return 'Cruiser is deactivated.'
     elif isinstance(notif, NotifyWakeUp):
         pass  # ignore
     else:

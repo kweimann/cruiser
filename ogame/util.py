@@ -46,9 +46,20 @@ def str2bool(string):
     return string in ['true', 'True', '1', 'yes'] if string else None
 
 
-def tuple2timestamp(date_tuple):
+def tuple2timestamp(date_tuple, tzinfo=None, tz_offset=None):
     """ Convert tuple (day, month, year, hour, minute, second) to timestamp. """
-    return int(datetime(**dict(zip(['day', 'month', 'year', 'hour', 'minute', 'second'], date_tuple))).timestamp())
+    day, month, year, hour, minute, second = date_tuple
+    if tzinfo is None and tz_offset is not None:
+        tzinfo = parse_tzinfo(tz_offset)
+    dt = datetime(
+        year=year,
+        month=month,
+        day=day,
+        hour=hour,
+        minute=minute,
+        second=second,
+        tzinfo=tzinfo)
+    return int(dt.timestamp())
 
 
 def str2int(string):
@@ -59,3 +70,8 @@ def str2int(string):
 def ftime(timestamp: int):
     """ Format time. """
     return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def parse_tzinfo(timezone_offset):
+    """ Get tzinfo object from a timezone offset e.g. +02:00 """
+    return datetime.strptime(timezone_offset, '%z').tzinfo
