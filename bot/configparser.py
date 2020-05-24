@@ -5,7 +5,7 @@ import yaml
 
 from bot.listeners import TelegramListener, AlertListener
 from bot.protocol import SendExpedition
-from ogame.game.const import Ship, CoordsType
+from ogame.game.const import Ship, CoordsType, Resource
 from ogame.game.model import Coordinates
 from ogame.util import find_unique
 
@@ -18,14 +18,18 @@ def parse_bot_config(config):
     min_time_before_attack_to_act = bot_config.get('min_time_before_attack_to_act')
     max_time_before_attack_to_act = bot_config.get('max_time_before_attack_to_act')
     try_recalling_saved_fleet = bot_config.get('try_recalling_saved_fleet')
+    max_return_flight_time = bot_config.get('max_return_flight_time')
     harvest_expedition_debris = bot_config.get('harvest_expedition_debris')
+    harvest_speed = bot_config.get('harvest_speed')
     return _remove_empty_values({
         'sleep_min': sleep_min,
         'sleep_max': sleep_max,
         'min_time_before_attack_to_act': min_time_before_attack_to_act,
         'max_time_before_attack_to_act': max_time_before_attack_to_act,
         'try_recalling_saved_fleet': try_recalling_saved_fleet,
-        'harvest_expedition_debris': harvest_expedition_debris
+        'max_return_flight_time': max_return_flight_time,
+        'harvest_expedition_debris': harvest_expedition_debris,
+        'harvest_speed': harvest_speed
     })
 
 
@@ -117,6 +121,13 @@ def _initialize_expedition(id, config):
         if not ship:
             raise ValueError(f'Unknown ship: {ship_name}')
         ships[ship] = amount
+    cargo = {}
+    for resource_name, amount in config.get('cargo', {}).items():
+        resource = Resource.from_name(resource_name)
+        if not resource:
+            raise ValueError(f'Unknown resource: {resource_name}')
+        cargo[resource] = amount
+    speed = config.get('speed', 10)
     holding_time = config.get('holding_time', 1)
     repeat = config.get('repeat', 'forever')
     origin = Coordinates(
@@ -134,8 +145,10 @@ def _initialize_expedition(id, config):
         origin=origin,
         dest=dest,
         ships=ships,
+        speed=speed,
         holding_time=holding_time,
-        repeat=repeat)
+        repeat=repeat,
+        cargo=cargo)
     return expedition
 
 

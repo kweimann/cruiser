@@ -26,7 +26,9 @@ from ogame.game.model import (
     Resources,
     Movement,
     FleetDispatch,
-    Overview
+    Overview,
+    Galaxy,
+    GalaxyPosition
 )
 from ogame.util import (
     join_digits,
@@ -411,6 +413,106 @@ class OGame:
                 max_expedition_slots=max_expedition_slots,
                 timestamp=timestamp)
 
+    def get_galaxy(self,
+                   galaxy: int,
+                   system: int,
+                   planet: Union[Planet, int] = None,
+                   delay: int = None,
+                   content_only: bool = False) -> Galaxy:
+        def parse_activity(activity_el):
+            if activity_el:
+                if 'minute15' in activity_el['class']:
+                    return '*'
+                elif 'showMinutes' in activity_el['class']:
+                    activity = join_digits(activity_el.text)
+                    return activity
+                else:
+                    raise ValueError('Failed to parse activity')
+
+        if not content_only:
+            self._get_galaxy(
+                planet=planet,
+                galaxy=galaxy,
+                system=system,
+                delay=delay)
+        galaxy_content = self._get_galaxy_content(
+            galaxy=galaxy,
+            system=system,
+            delay=delay if content_only else 0)
+        galaxy_soup = parse_html(galaxy_content['galaxy'])
+        galaxy_rows = galaxy_soup.find_all(class_='row')
+        positions = []
+        for position, galaxy_row in enumerate(galaxy_rows, start=1):
+            planet_el = galaxy_row.find(attrs={'data-planet-id': True})
+            if not planet_el:
+                continue  # empty position
+            planet_id = int(planet_el['data-planet-id'])
+            planet_activity_el = planet_el.find(class_='activity')
+            planet_activity = parse_activity(planet_activity_el)
+            planet_el = _find_exactly_one(galaxy_soup, id=f'planet{position}')
+            planet_name = planet_el.h1.span.text.strip()
+            planet = Planet(
+                id=planet_id,
+                name=planet_name,
+                coords=Coordinates(galaxy, system, position, CoordsType.planet))
+            player_el = _find_exactly_one(galaxy_row, class_='playername')
+            player_link = player_el.find('a')
+            planet_destroyed = False
+            if player_link:
+                player_id = join_digits(player_link['rel'][0])
+                if player_id == 99999:
+                    planet_destroyed = True
+            else:
+                # it is on of our planets
+                player_id = None
+            moon_el = galaxy_row.find(attrs={'data-moon-id': True})
+            if moon_el:
+                moon_id = moon_el['data-moon-id']
+                moon_activity_el = moon_el.find(class_='activity')
+                moon_activity = parse_activity(moon_activity_el)
+                moon_destroyed = 'moon_c' in moon_el.a.div['class']
+                moon_el = _find_exactly_one(galaxy_soup, id=f'moon{position}')
+                moon_name = moon_el.h1.span.text.strip()
+                moon = Planet(
+                    id=moon_id,
+                    name=moon_name,
+                    coords=Coordinates(galaxy, system, position, CoordsType.moon))
+            else:
+                moon = None
+                moon_activity = None
+                moon_destroyed = False
+            debris_el = galaxy_row.find(class_='debrisField')
+            if debris_el:
+                debris_el = _find_exactly_one(galaxy_soup, id=f'debris{position}')
+                metal_el, crystal_el = _find_exactly(debris_el, n=2, class_='debris-content')
+                metal_amount = join_digits(metal_el.text)
+                crystal_amount = join_digits(crystal_el.text)
+                debris = {Resource.metal: metal_amount,
+                          Resource.crystal: crystal_amount}
+            else:
+                debris = None
+            galaxy_position = GalaxyPosition(
+                planet=planet,
+                planet_activity=planet_activity,
+                moon=moon,
+                moon_activity=moon_activity,
+                debris=debris,
+                player_id=player_id,
+                planet_destroyed=planet_destroyed,
+                moon_destroyed=moon_destroyed)
+            positions.append(galaxy_position)
+        expedition_debris_el = galaxy_soup.find(id='debris16')
+        expedition_debris = {}
+        if expedition_debris_el:
+            metal_el, crystal_el = _find_exactly(expedition_debris_el, n=2, class_='debris-content')
+            metal_amount = join_digits(metal_el.text)
+            crystal_amount = join_digits(crystal_el.text)
+            expedition_debris = {Resource.metal: metal_amount,
+                                 Resource.crystal: crystal_amount}
+        return Galaxy(
+            positions=positions,
+            expedition_debris=expedition_debris)
+
     def get_fleet_dispatch(self,
                            planet: Union[Planet, int],
                            delay: int = None) -> FleetDispatch:
@@ -444,12 +546,12 @@ class OGame:
                    origin: Union[Planet, int],
                    dest: Union[Planet, Coordinates],
                    mission: Mission,
-                   ships: Union[Dict[Ship, int], str] = 'all',
+                   ships: Dict[Ship, int],
                    fleet_speed: int = 10,
                    resources: Dict[Resource, int] = None,
                    holding_time: int = None,
-                   fleet_dispatch: FleetDispatch = None,
-                   delay: int = None) -> FleetDispatch:
+                   token: str = None,
+                   delay: int = None) -> bool:
         """ @return: FleetDispatch before sending the fleet. """
         if isinstance(dest, Planet):
             dest = dest.coords
@@ -461,12 +563,10 @@ class OGame:
             if holding_time is not None:
                 logging.warning('Setting `holding_time` to 0')
             holding_time = 0
-        if fleet_dispatch is None:
-            fleet_dispatch = self.get_fleet_dispatch(origin, delay=delay)
-        if ships == 'all':
-            ships = fleet_dispatch.ships
-        self._post_fleet_dispatch(
-            {'token': fleet_dispatch.dispatch_token,
+        if token is None:
+            token = self.get_fleet_dispatch(origin, delay=delay).dispatch_token
+        response = self._post_fleet_dispatch(
+            {'token': token,
              'galaxy': dest.galaxy,
              'system': dest.system,
              'position': dest.position,
@@ -484,7 +584,8 @@ class OGame:
              'holdingtime': holding_time,
              **{f'am{ship.id}': amount for ship, amount in ships.items() if amount > 0}},
             delay=delay)
-        return fleet_dispatch
+        success = response['success']
+        return success
 
     def _get_overview(self,
                       planet: Union[Planet, int] = None,
@@ -552,6 +653,21 @@ class OGame:
                     'system': system},
             delay=delay)
 
+    def _get_galaxy_content(self,
+                            galaxy: int,
+                            system: int,
+                            delay: int = None):
+        return self._post_game_resource(
+            resource='json',
+            params={'page': 'ingame',
+                    'component': 'galaxyContent',
+                    'ajax': 1},
+            headers={'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                     'X-Requested-With': 'XMLHttpRequest'},
+            data={'galaxy': galaxy,
+                  'system': system},
+            delay=delay)
+
     def _get_resources(self,
                        planet: Union[Planet, int] = None,
                        delay: int = None):
@@ -562,6 +678,7 @@ class OGame:
             params={'page': 'fetchResources',
                     'cp': planet,
                     'ajax': 1},
+            headers={'X-Requested-With': 'XMLHttpRequest'},
             delay=delay)
 
     def _get_event_list(self,
@@ -571,19 +688,21 @@ class OGame:
             params={'page': 'componentOnly',
                     'component': 'eventList',
                     'ajax': 1},
+            headers={'X-Requested-With': 'XMLHttpRequest'},
             delay=delay)
 
     def _post_fleet_dispatch(self,
                              fleet_dispatch_data,
                              delay: int = None):
-        return self._request(
-            method='post',
-            url=self._base_game_url,
+        return self._post_game_resource(
+            resource='json',
             params={'page': 'ingame',
                     'component': 'fleetdispatch',
                     'action': 'sendFleet',
                     'ajax': 1,
                     'asJson': 1},
+            headers={'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                     'X-Requested-With': 'XMLHttpRequest'},
             data=fleet_dispatch_data,
             delay=delay)
 
@@ -607,7 +726,7 @@ class OGame:
             method=method,
             url=self._base_game_url,
             **kwargs)
-        soup = parse_html(response)
+        soup = parse_html(response.content)
         ogame_session = soup.find('meta', {'name': 'ogame-session'})
         if not ogame_session:
             raise NotLoggedInError()
@@ -621,7 +740,7 @@ class OGame:
             method=method,
             url=self._base_game_url,
             **kwargs)
-        soup = parse_html(response)
+        soup = parse_html(response.content)
         # resource can be either a piece of html or json
         #  so a <head> tag in the html means that we landed on the login page
         if soup.find('head'):
@@ -693,9 +812,6 @@ class OGame:
             return CoordsType.debris
         else:
             raise ValueError('Failed to parse coordinate type.')
-
-
-# TODO _find_at_most_one
 
 
 def _find_exactly_one(root, raise_exc=True, **kwargs):

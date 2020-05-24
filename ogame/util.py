@@ -25,9 +25,9 @@ def find_unique(item, iterable, key=None):
         return items[0]
 
 
-def parse_html(response):
-    """ Parse html response with BeautifulSoup. """
-    return BeautifulSoup(response.content, 'html.parser')
+def parse_html(html):
+    """ Parse html string with BeautifulSoup. """
+    return BeautifulSoup(html, 'html.parser')
 
 
 def join_digits(string):

@@ -1,0 +1,1 @@
+docker run -d -it --restart unless-stopped --device /dev/snd cruiser "$@"

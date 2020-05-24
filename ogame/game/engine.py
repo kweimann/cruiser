@@ -184,7 +184,7 @@ class Engine:
         @return: duration of the flight in seconds
         """
         if not any(ships.values()):
-            raise ValueError('Cannot calculate flight duration if there are not ships.')
+            raise ValueError('Cannot calculate flight duration if there are no ships.')
         lowest_ship_speed = min([self.ship_speed(ship, technology)
                                  for ship, amount in ships.items()
                                  if amount > 0])

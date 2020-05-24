@@ -139,3 +139,21 @@ class FleetDispatch:
 
     @property
     def free_expedition_slots(self) -> int: return self.max_expedition_slots - self.used_expedition_slots
+
+
+@dataclasses.dataclass(frozen=True)
+class GalaxyPosition:
+    planet: Planet
+    planet_activity: Union[int, str] = None
+    moon: Planet = None
+    moon_activity: Union[int, str] = None
+    debris: Dict[Resource, int] = None
+    player_id: int = None
+    planet_destroyed: bool = False
+    moon_destroyed: bool = False
+
+
+@dataclasses.dataclass(frozen=True)
+class Galaxy:
+    positions: List[GalaxyPosition]
+    expedition_debris: Dict[Resource, int] = None

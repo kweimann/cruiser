@@ -2,7 +2,7 @@ import dataclasses
 from typing import Dict, Union
 
 from ogame.game.const import Ship
-from ogame.game.model import Coordinates, Planet
+from ogame.game.model import Coordinates, Planet, Resource
 
 
 @dataclasses.dataclass
@@ -16,8 +16,10 @@ class SendExpedition:
     origin: Coordinates
     dest: Coordinates
     ships: Dict[Ship, int]
+    speed: int = 10
     holding_time: int = 1
     repeat: Union[int, str] = 'forever'
+    cargo: Dict[Resource, int] = None
 
 
 @dataclasses.dataclass
@@ -95,3 +97,10 @@ class NotifyExpeditionCancelled:
     expedition: SendExpedition
     cancellation: CancelExpedition
     fleet_returned: bool
+
+
+@dataclasses.dataclass
+class NotifyDebrisHarvest:
+    destination: Coordinates
+    debris: Dict[Resource, int]
+    error: str = None

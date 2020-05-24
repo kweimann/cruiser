@@ -15,7 +15,8 @@ from bot.protocol import (
     NotifyPlanetsSafe,
     NotifyHostileEventRecalled,
     NotifyStarted,
-    NotifyStopped
+    NotifyStopped,
+    NotifyDebrisHarvest
 )
 from ogame.util import ftime
 
@@ -71,33 +72,50 @@ class TelegramListener(Listener):
 
 class AlertListener(Listener):
     def __init__(self, wakeup_wav=None, error_wav=None):
-        self._check_wav_file(wakeup_wav)
-        self._check_wav_file(error_wav)
+        self._check_wav_file(wakeup_wav, raise_exc=True)
+        self._check_wav_file(error_wav, raise_exc=True)
         self.wakeup_wav = wakeup_wav
         self.error_wav = error_wav
 
     def notify(self, notification):
-        if self.wakeup_wav and isinstance(notification, NotifyWakeUp):
+        if isinstance(notification, NotifyWakeUp):
             self._play_async(self.wakeup_wav)
+        elif hasattr(notification, 'error') and notification.error:
+            self._play_async(self.error_wav)
 
     def notify_exception(self, exception):
-        if self.error_wav:
-            self._play_async(self.error_wav)
+        self._play_async(self.error_wav)
 
     @staticmethod
     def _play_async(wav_file):
-        sa.WaveObject.from_wave_file(wav_file).play()
+        if AlertListener._check_wav_file(wav_file):
+            sa.WaveObject.from_wave_file(wav_file).play()
 
     @staticmethod
-    def _check_wav_file(file):
+    def _check_wav_file(file, raise_exc=False):
         if file is not None:
             if not os.path.exists(file):
-                raise ValueError(f'Audio file does not exists: {file}')
+                if raise_exc:
+                    raise ValueError(f'Audio file does not exists: {file}')
+                else:
+                    logging.warning(f'Audio file does not exists: {file}')
+                return False
             if not os.path.isfile(file):
-                raise ValueError(f'Path is not a file: {file}')
+                if raise_exc:
+                    raise ValueError(f'Path is not a file: {file}')
+                else:
+                    logging.warning(f'Path is not a file: {file}')
+                return False
             _, ext = os.path.splitext(file)
             if ext != '.wav':
-                raise ValueError(f'Only wave files (.wav) are supported: {file}')
+                if raise_exc:
+                    raise ValueError(f'Only wave files (.wav) are supported: {file}')
+                else:
+                    logging.warning(f'Only wave files (.wav) are supported: {file}')
+                return False
+            return True
+        else:
+            return False
 
 
 def parse_notification(notif):
@@ -139,6 +157,12 @@ def parse_notification(notif):
                        f'but the fleet could not be returned.'
         else:
             return f'Expedition from `{notif.expedition.origin}` has been cancelled.'
+    elif isinstance(notif, NotifyDebrisHarvest):
+        if notif.error:
+            return f'Failed to harvest debris `{notif.debris}` at `{notif.destination}` ' \
+                   f'due to an error: `{notif.error}`'
+        else:
+            return f'Harvested debris `{notif.debris}` at `{notif.destination}`.'
     elif isinstance(notif, NotifySavedFleetRecalled):
         if notif.error:
             return f'Failed to recall fleet escaping from `{notif.origin}`: `{notif.error}`'

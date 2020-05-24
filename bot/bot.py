@@ -1,5 +1,6 @@
 import dataclasses
 import logging
+import math
 import random
 import time
 import uuid
@@ -21,7 +22,8 @@ from bot.protocol import (
     NotifyPlanetsSafe,
     NotifyHostileEventRecalled,
     NotifyStarted,
-    NotifyStopped
+    NotifyStopped,
+    NotifyDebrisHarvest
 )
 from ogame import (
     OGame,
@@ -115,7 +117,9 @@ class OGameBot:
                  min_time_before_attack_to_act: int = 120,  # 2 minutes
                  max_time_before_attack_to_act: int = 180,  # 3 minutes
                  try_recalling_saved_fleet: bool = False,
-                 harvest_expedition_debris: bool = True):
+                 max_return_flight_time: int = 600,  # 10 minutes
+                 harvest_expedition_debris: bool = True,
+                 harvest_speed: int = 10):
         self.client = client
         self.scheduler = scheduler
         self.sleep_min = sleep_min
@@ -123,7 +127,9 @@ class OGameBot:
         self.min_time_before_attack_to_act = min_time_before_attack_to_act
         self.max_time_before_attack_to_act = max_time_before_attack_to_act
         self.try_recalling_saved_fleet = try_recalling_saved_fleet
+        self.max_return_flight_time = max_return_flight_time
         self.harvest_expedition_debris = harvest_expedition_debris
+        self.harvest_speed = harvest_speed
 
         self._engine = None
         self._periodic_wakeup_id = None
@@ -194,9 +200,12 @@ class OGameBot:
             overview = resource_manager.get_overview()
             # Update the character class in the engine.
             self._engine.character_class = overview.character_class
-            # Proceed with doing work.
+            # Handle work now.
+            # Begin with checking for hostile events and defending planets.
             self._handle_hostile_events(event, resource_manager)
-            self._handle_expeditions(resource_manager)
+            # Run expeditions.
+            if self._expeditions:
+                self._handle_expeditions(resource_manager)
             # No exception has been thrown, so reset the exception count.
             self._exc_count = 0
         except Exception as e:
@@ -320,8 +329,8 @@ class OGameBot:
                         # Only wait for the incoming fleets for up to 5 seconds before the hostile arrival.
                         #  However, if the hostile fleet arrives in less than 5 seconds and there is still
                         #  a friendly fleet returning, then try to save it too.
-                        if current_time < (hostile_arrival - 5) < (last_friendly_arrival - 1):
-                            wakeup_times.append(hostile_arrival - 5)
+                        if current_time < (hostile_arrival - 10) < (last_friendly_arrival - 1):
+                            wakeup_times.append(hostile_arrival - 10)
                         else:
                             wakeup_times.append(last_friendly_arrival + 1)
                     else:
@@ -349,8 +358,8 @@ class OGameBot:
             else:
                 last_friendly_arrival = last_friendly_arrivals.get(hostile_event.id)
                 if last_friendly_arrival:
-                    if current_time < (hostile_arrival - 5) < (last_friendly_arrival - 1):
-                        fleet_save_time = hostile_arrival - 5
+                    if current_time < (hostile_arrival - 10) < (last_friendly_arrival - 1):
+                        fleet_save_time = hostile_arrival - 10
                     else:
                         fleet_save_time = last_friendly_arrival + 1
                 else:
@@ -366,7 +375,7 @@ class OGameBot:
             # Get additional information to better prepare escape flights.
             technology = resource_manager.get_research().technology
             resources = self.client.get_resources(planet).amount
-            deuterium = resources[Resource.deuterium]
+            deuterium = resources.setdefault(Resource.deuterium, 0)
             # Go to the fleet dispatch page. It is important that `get_fleet_dispatch`
             #  directly precedes `send_fleet` to make sure the dispatch token remains valid.
             fleet_dispatch = self.client.get_fleet_dispatch(planet)
@@ -425,17 +434,24 @@ class OGameBot:
                 resources=resources,
                 free_cargo_capacity=free_cargo_capacity)
             # Send fleet to a safe destination.
-            self.client.send_fleet(
+            success = self.client.send_fleet(
                 origin=planet,
                 dest=escape_flight.dest,
                 ships=fleet_dispatch.ships,
                 mission=Mission.deployment,
                 fleet_speed=escape_flight.fleet_speed,
                 resources=cargo,
-                fleet_dispatch=fleet_dispatch)
+                token=fleet_dispatch.dispatch_token)
+            if success:
+                logging.info(f'Fleet successfully escaped from {planet} to {destination}.')
+            else:
+                logging.warning(f'Failed to save fleet from an attack on {planet}.')
+                fs_notification.error = 'Failed to send fleet.'
+                self._notify_listeners(fs_notification)
+                continue
             # Invalidate cache because the game state was altered by sending the fleet.
             movement = resource_manager.get_movement(invalidate_cache=True)
-            # Look for the corresponding fleet event to make sure the fleet was sent.
+            # Find the saved fleet to allow tracking.
             fleets = find_fleets(
                 fleets=movement.fleets,
                 origin=planet,
@@ -446,20 +462,16 @@ class OGameBot:
                 departs_before=movement.timestamp + 1,
                 departs_after=fleet_dispatch.timestamp - 1)
             if len(fleets) == 0:
-                logging.warning('Failed to find saved fleet. It may have not been dispatched at all.')
-                fs_notification.error = 'Failed to find the fleet. It may have not been dispatched at all.'
-                self._notify_listeners(fs_notification)
-                continue
+                logging.warning('Failed to find saved fleet.')
+                fs_notification.error = 'Failed to find the fleet.'
+            elif len(fleets) == 1:
+                # The fleet has been successfully saved.
+                if self.try_recalling_saved_fleet:
+                    saved_fleet = fleets[0]
+                    self._saved_fleets[saved_fleet.id] = planet
             elif len(fleets) > 1:
-                logging.warning('Failed to find saved fleet. Multiple fleets were matched.')
+                logging.warning('Multiple fleets matched the saved fleet.')
                 fs_notification.error = 'Multiple fleets matched.'
-                self._notify_listeners(fs_notification)
-                continue
-            # The fleet has been successfully saved.
-            if self.try_recalling_saved_fleet:
-                saved_fleet = fleets[0]
-                self._saved_fleets[saved_fleet.id] = planet
-            logging.info(f'Fleet successfully escaped from {planet} to {destination}')
             self._notify_listeners(fs_notification)
 
         # Return deployment fleets if the destination is under attack and the fleet arrives
@@ -483,7 +495,7 @@ class OGameBot:
             for deployment_fleet in deployment_fleets:
                 # Note that `arrival_time` in the fleet movement means the arrival on the origin planet.
                 deployment_arrival = deployment_fleet.departure_time + deployment_fleet.flight_duration
-                if (hostile_arrival - 5) <= deployment_arrival <= (hostile_arrival + 5):
+                if (hostile_arrival - 10) <= deployment_arrival <= (hostile_arrival + 10):
                     movement = resource_manager.get_movement(return_fleet=deployment_fleet)
                     # Make sure that the fleet was returned.
                     deployment_fleet = find_fleets(
@@ -531,9 +543,9 @@ class OGameBot:
                 fs_recalled_notification.error = 'Fleet already returning.'
                 self._notify_listeners(fs_recalled_notification)
                 continue
-            # Make sure that if the fleet is returned, it will arrive in less than `sleep_min` seconds.
+            # Make sure that if the fleet is returned, it will arrive in less than `max_return_flight_time` seconds.
             current_flight_duration = now() - saved_fleet.departure_time
-            if current_flight_duration > self.sleep_min:
+            if current_flight_duration > self.max_return_flight_time:
                 self._saved_fleets.pop(saved_fleet_id)
                 logging.warning(f'Cannot recall fleet escaping from {origin} because it would arrive too late.')
                 fs_recalled_notification.error = 'Fleet would arrive too late.'
@@ -654,10 +666,36 @@ class OGameBot:
             # Get additional information to better prepare the expeditions.
             technology = resource_manager.get_research().technology
             resources = self.client.get_resources(planet).amount
+            deuterium = resources.setdefault(Resource.deuterium, 0)
             # Check if the required ships are available.
             fleet_dispatch = self.client.get_fleet_dispatch(planet)
             if not enough_ships(available_ships=fleet_dispatch.ships, required_ships=expedition.data.ships):
                 logging.warning(f'The required ships are not available. Postponing expedition: {expedition.data}')
+                continue
+            # Check if the required cargo is available.
+            cargo = expedition.data.cargo or {}
+            required_capacity = sum(cargo.values())
+            fleet_capacity = self._engine.cargo_capacity(
+                ships=expedition.data.ships,
+                technology=technology)
+            if required_capacity > fleet_capacity:
+                # Expedition is invalid because the fleet does not have enough capacity to take the cargo.
+                self._expeditions.pop(expedition.data.id)
+                logging.warning(f'Not enough capacity for the cargo. Removing expedition: {expedition.data}')
+                expedition_log = NotifyExpeditionFinished(
+                    expedition=expedition.data,
+                    error='Not enough capacity for the cargo.')
+                self._notify_listeners(expedition_log)
+                continue
+            resources_available = True
+            for resource, amount in cargo.items():
+                available_resource = resources.setdefault(resource, 0)
+                if available_resource < amount:
+                    resources_available = False
+                    break
+            if not resources_available:
+                logging.warning(f'Not enough resources for the required cargo. '
+                                f'Postponing expedition: {expedition.data}')
                 continue
             # Check if there is enough fuel to make the flight.
             fuel_consumption = get_fuel_consumption(
@@ -666,24 +704,41 @@ class OGameBot:
                 destination=expedition.data.dest,
                 ships=expedition.data.ships,
                 technology=technology,
+                fleet_speed=expedition.data.speed,
                 holding_time=expedition.data.holding_time)
-            deuterium = resources[Resource.deuterium]
-            if deuterium < fuel_consumption:
-                logging.warning(f'Not enough fuel to make the flight. Postponing expedition: {expedition.data}')
+            deuterium_after_cargo = deuterium - cargo.get(Resource.deuterium, 0)
+            if deuterium_after_cargo < fuel_consumption:
+                logging.warning(f'Not enough fuel to start the flight. Postponing expedition: {expedition.data}')
                 continue
             # Send fleet for expeditions. If an exception is thrown by either `send_fleet`
             #  or `get_movement` then this expedition will not be tracked at first - bot will
             #  assume that it has to be sent again unless it is matched against an unassigned expedition.
-            self.client.send_fleet(
+            success = self.client.send_fleet(
                 origin=planet,
                 dest=expedition.data.dest,
                 mission=Mission.expedition,
                 ships=expedition.data.ships,
+                fleet_speed=expedition.data.speed,
+                resources=cargo,
                 holding_time=expedition.data.holding_time,
-                fleet_dispatch=fleet_dispatch)
+                token=fleet_dispatch.dispatch_token)
+            if success:
+                # Update the counter.
+                if expedition.data.repeat != 'forever':
+                    expedition.data.repeat -= 1
+                logging.info(f'Expedition sent: {expedition.data}')
+            else:
+                # Remove expedition.
+                self._expeditions.pop(expedition.data.id)
+                logging.warning(f'Failed to send expedition fleet. Removing expedition: {expedition.data}')
+                expedition_log = NotifyExpeditionFinished(
+                    expedition=expedition.data,
+                    error='Failed to send the expedition fleet.')
+                self._notify_listeners(expedition_log)
+                continue
             # Invalidate cache because the game state was altered by sending the fleet.
             movement = resource_manager.get_movement(invalidate_cache=True)
-            # Look for the corresponding fleet event to make sure the fleet was sent.
+            # Find the id of the expedition fleet to allow tracking.
             unassigned_expedition_fleets = get_unassigned_expedition_fleets(
                 fleets=movement.fleets,
                 expeditions=self._expeditions.values())
@@ -693,27 +748,103 @@ class OGameBot:
                 dest=expedition.data.dest,
                 mission=Mission.expedition,
                 ships=expedition.data.ships,
+                cargo=cargo,
                 departs_before=movement.timestamp + 1,
                 departs_after=fleet_dispatch.timestamp - 1)
             if len(fleets) == 0:
-                logging.warning(f'Failed to find the expedition fleet. It may have not been dispatched at all. '
-                                f'Removing expedition: {expedition.data}')
-                expedition_log = NotifyExpeditionFinished(
-                    expedition=expedition.data,
-                    error='Failed to find the expedition fleet. It may have not been dispatched at all.')
-                self._notify_listeners(expedition_log)
+                logging.warning(f'Failed to find the expedition fleet: {expedition.data}')
             elif len(fleets) == 1:
-                if expedition.data.repeat != 'forever':
-                    expedition.data.repeat -= 1
                 # Assign fleet to the expedition.
                 expedition.fleet_id = fleets[0].id
-                logging.info(f'Expedition sent: {expedition.data}')
             else:
-                logging.warning(f'Multiple fleets matched this expedition. Removing expedition: {expedition.data}')
-                expedition_log = NotifyExpeditionFinished(
-                    expedition=expedition.data,
-                    error='Multiple fleets matched this expedition.')
-                self._notify_listeners(expedition_log)
+                logging.warning(f'Multiple fleets matched the expedition: {expedition.data}')
+
+        # Check for any expedition debris to harvest.
+        if self.harvest_expedition_debris:
+            expedition_destinations = {expedition.data.dest for expedition in self._expeditions.values()}
+            for destination in expedition_destinations:
+                galaxy = self.client.get_galaxy(
+                    galaxy=destination.galaxy,
+                    system=destination.system)
+                # First check whether there is any debris from expeditions.
+                if galaxy.expedition_debris:
+                    required_pathfinders = None
+                    # Find all origins that are connected to this destination.
+                    expedition_origins = {expedition.data.origin for expedition in self._expeditions.values()
+                                          if expedition.data.dest == destination}
+                    # Set destination to debris.
+                    destination = dataclasses.replace(destination, type=CoordsType.debris)
+                    def distance(coords): return self._engine.distance(coords, destination)
+                    # Try to send pathfinders starting from the closest origin.
+                    for origin_coords in sorted(expedition_origins, key=distance):
+                        # Find out how much cargo can a single pathfinder carry.
+                        technology = resource_manager.get_research().technology
+                        pathfinder_cargo = self._engine.cargo_capacity(
+                            ships=Ship.pathfinder,
+                            technology=technology)
+                        # Calculate how many pathfinders are required to harvest the entire expedition debris.
+                        required_cargo = sum(galaxy.expedition_debris.values())
+                        required_pathfinders = math.ceil(required_cargo / pathfinder_cargo)
+                        # Check for any pathfinder fleets already flying towards the debris.
+                        harvesting_fleets = find_fleets(
+                            fleets=movement.fleets,
+                            dest=destination,
+                            mission=Mission.harvest,
+                            is_return_flight=False)
+                        for harvesting_fleet in harvesting_fleets:
+                            # Note that we are assuming that the harvesting fleet has no cargo!
+                            required_pathfinders -= harvesting_fleet.ships.get(Ship.pathfinder, 0)
+                        if required_pathfinders <= 0:
+                            break  # we don't need to send any more pathfinders to this destination
+                        # Get additional information about the origin planet.
+                        origin = match_planet(
+                            coords=origin_coords,
+                            planets=overview.planets)
+                        resources = self.client.get_resources(origin).amount
+                        deuterium = resources.setdefault(Resource.deuterium, 0)
+                        fleet_dispatch = self.client.get_fleet_dispatch(origin)
+                        # Try sending as many pathfinders as possible.
+                        # Note that the actual fuel consumption per pathfinder is slightly lower when flying in a fleet.
+                        single_pf_fuel_consumption = get_fuel_consumption(
+                            engine=self._engine,
+                            origin=origin,
+                            destination=destination,
+                            ships={Ship.pathfinder: 1},
+                            technology=technology,
+                            fleet_speed=self.harvest_speed)
+                        # Get the number of available pathfinders based on available fuel and ships.
+                        available_pathfinders = min(
+                            fleet_dispatch.ships.get(Ship.pathfinder, 0),
+                            deuterium // single_pf_fuel_consumption)
+                        if not available_pathfinders:
+                            continue  # we cannot send any pathfinders from this planet
+                        pathfinder_fleet = {Ship.pathfinder: min(required_pathfinders, available_pathfinders)}
+                        success = self.client.send_fleet(
+                            origin=origin,
+                            dest=destination,
+                            mission=Mission.harvest,
+                            ships=pathfinder_fleet,
+                            fleet_speed=self.harvest_speed,
+                            token=fleet_dispatch.dispatch_token)
+                        if success:
+                            sent_pathfinders = pathfinder_fleet[Ship.pathfinder]
+                            required_pathfinders -= sent_pathfinders
+                            logging.info(f'Sent {sent_pathfinders} pathfinders '
+                                         f'from {origin} to {destination}.')
+                        else:
+                            logging.warning(f'Failed to send pathfinders from {origin} to '
+                                            f'harvest expedition debris at {destination}.')
+                            continue
+                        # Invalidate cache because the game state was altered by sending the fleet.
+                        movement = resource_manager.get_movement(invalidate_cache=True)
+                    if required_pathfinders > 0:
+                        logging.warning(f'Missing {required_pathfinders} pathfinders to fully '
+                                        f'harvest expedition debris at {destination}.')
+                        self._notify_listeners(
+                            NotifyDebrisHarvest(
+                                destination=destination,
+                                debris=galaxy.expedition_debris,
+                                error=f'Missing {required_pathfinders} to fully harvest expedition debris'))
 
     def _notify_listeners(self, notification):
         """ Notify listeners about actions taken. """

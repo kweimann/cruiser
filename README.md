@@ -1,4 +1,4 @@
-# Cruiser 🚀
+# 🚀 Cruiser
 OGame assistant that keeps your galactic empire safe, notifies you about any potential threats and automates tedious tasks.
 
 # Features
@@ -69,7 +69,7 @@ bot:
   expeditions: [neverending]
 ```
 
-As you can see, you only need to provide the origin and the fleet in order to setup an expedition. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will first validate your expeditions and then manage them for as long as the you want it to. 
+As you can see, you only need to provide the origin and the fleet in order to setup an expedition. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will first validate your expeditions and then manage them for as long as you want it to. Additionally, Cruiser watches over the galaxy in case your expeditions create debris and sends pathfinders to harvest it.
 
 Below is a list of all valid ship names:
 
@@ -121,7 +121,7 @@ bot:
   expeditions: [neverending]
 ```
 
-Don't be afraid to change the configuration whenever you want. Cruiser automatically adjusts to the current state of your account. Therefore it can be restarted at any time without causing any problems. 
+Don't be afraid to change the configuration whenever you want. Cruiser automatically adjusts to the current state of your account. Therefore it can be restarted at any time without causing any problems. Furthermore, you are free to login from the browser or mobile whenever you want - Cruiser won't mind.
 
 Don't forget to read the template configuration located in the [config.yaml](config.yaml) file. There you will find all possible settings.
 
@@ -133,6 +133,14 @@ If you would like to see a feature that is currently missing, don't hesitate to 
 3. Setup account information in `config.yaml`
 4. Start Cruiser `python start_bot.py`
     * Alternatively: `python start_bot.py --config <path-to-config>` if you're using a different configuration file than [config.yaml](config.yaml).
+
+# 🐋 Docker
+
+For those of you who like to run containers I've included an easy setup to run on a Debian:
+1. Build docker image `docker-build.sh`
+2. Run docker container `docker-run.sh [--config <path-to-config>]`
+
+The container is run in a background process. You can run `docker attach` to connect to your container. Furthermore, I'm using a restart policy to make sure that the container will be restarted if anything happens. Finally, you can run `docker stop` to stop the container.
 
 # Contribution
 Any contributions are very welcome! Make sure to first post an issue with the features you want to implement and try to stick to the coding style of the project. Happy coding!
