@@ -5,8 +5,10 @@ OGame assistant that keeps your galactic empire safe, notifies you about any pot
 *OGame Version Compatibility*: **7.2.1**
 
 * 🛡️ **Smart fleet saving**: Cruiser watches over your account making sure that all your planets (and moons) are protected. Your fleets and resources will be saved in a way that prevents them from being sniped with sensor phalanx and requires minimum fuel consumption.
+
 * 🔔 **Notifications**: Cruiser notifies you about any hostile events and the actions it takes to protect you.
-* 🌌 **Auto expeditions**: Cruiser manages expeditions for you so that you will never again need to worry about having free expeditions slots.
+
+* 🌌 **Auto expeditions**: Cruiser manages expeditions for you so that you will never again need to worry about having free expedition slots.
 
 # How to use?
 
@@ -57,7 +59,7 @@ In the config above, we define a new listener called `telegram` with two argumen
 
 Currently, the meta is to run as many expeditions as humanly possible. Thank god Cruiser is not a human and so it can run more expeditions. 
 
-Assume we're just starting and want to setup an expedition fleet and have Cruiser resend it as soon as it returns to the planet. We'll call this expedition `neverending` and assign 5 small cargo ships to it:
+Let's image that we've just started playing and want to setup a small expedition fleet and have Cruiser resend it as soon as it returns to our home planet at `[1, 115, 8]`. We'll call this expedition `neverending` and assign 5 small cargo ships to it:
 
 ```yaml
 expeditions:
@@ -69,7 +71,7 @@ bot:
   expeditions: [neverending]
 ```
 
-As you can see, you only need to provide the origin and the fleet in order to setup an expedition. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will first validate your expeditions and then manage them for as long as you want it to. Additionally, Cruiser watches over the galaxy in case your expeditions create debris and sends pathfinders to harvest it.
+As you can see, you only need to provide the origin and the fleet in order to setup a simple expedition that runs forever. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will happily manage your expeditions and you don't have to do anything. Additionally, Cruiser watches over the galaxy in case your expeditions create debris and sends pathfinders to harvest it.
 
 Below is a list of all valid ship names:
 
@@ -140,7 +142,7 @@ For those of you who like to run containers I've included an easy setup to run o
 1. Build docker image `docker-build.sh`
 2. Run docker container `docker-run.sh [--config <path-to-config>]`
 
-The container is run in a background process. You can run `docker attach` to connect to your container. Furthermore, I'm using a restart policy to make sure that the container will be restarted if anything happens. Finally, you can run `docker stop` to stop the container.
+The container runs in a background process. You can run `docker attach` to connect to your container. Furthermore, I'm using a restart policy to make sure that the container will be restarted if it suddenly stops running. Finally, you can run `docker stop` to stop the container.
 
 # Contribution
 Any contributions are very welcome! Make sure to first post an issue with the features you want to implement and try to stick to the coding style of the project. Happy coding!
@@ -150,3 +152,4 @@ Any contributions are very welcome! Make sure to first post an issue with the fe
 * **OGameAPI client** `ogame/api/client.py` client for retrieving information from the official public API.
 * **OGame engine** `ogame/game/engine.py` game engine used for calculations e.g. fuel consumption of a fleet.
 * **OGame bot** `bot/bot.py` implementation of Cruiser's logic, or alternatively, the brain of the operation.
+* **Analytics** `analytics/` collection of various scripts for the analysis of game mechanics and current state of a universe.
