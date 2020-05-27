@@ -2,7 +2,7 @@
 OGame assistant that keeps your galactic empire safe, notifies you about any potential threats and automates tedious tasks.
 
 # Features
-*OGame Version Compatibility*: **7.2.1**
+*OGame Version Compatibility*: **7.3.0**
 
 * 🛡️ **Smart fleet saving**: Cruiser watches over your account making sure that all your planets (and moons) are protected. Your fleets and resources will be saved in a way that prevents them from being sniped with sensor phalanx and requires minimum fuel consumption.
 
