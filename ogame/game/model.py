@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Optional
 
 from ogame.game.const import (
     Mission,
@@ -38,6 +38,7 @@ class FleetEvent:
     arrival_time: int
     mission: Mission
     return_flight: bool
+    ships: Optional[Dict[Ship, Optional[int]]]
     player_id: int = None
 
 

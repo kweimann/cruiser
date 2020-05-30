@@ -54,6 +54,7 @@ class Ship(IdEnum):
     solar_satellite = 212
     deathstar = 214
     battlecruiser = 215
+    trade_ship = 216
     crawler = 217
     reaper = 218
     pathfinder = 219

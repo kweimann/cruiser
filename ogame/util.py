@@ -32,7 +32,7 @@ def parse_html(html):
 
 def join_digits(string):
     """ Join all digits in a string together to make a number. Negative numbers are supported. """
-    number = re.sub('[^-?\\d+]', '', string)
+    number = re.sub('[^-\\d+]', '', string)
     return int(number) if number else None
 
 

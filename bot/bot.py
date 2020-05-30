@@ -223,10 +223,9 @@ class OGameBot:
         overview = resource_manager.get_overview()
         events = resource_manager.get_events()
         # Get all hostile fleets.
-        hostile_events = find_fleets(
-            fleets=events,
-            dest=overview.planets,
-            mission=[Mission.attack, Mission.acs_attack])
+        hostile_events = find_hostile_events(
+            events=events,
+            planets=overview.planets)
         hostile_events = {event.id: event for event in hostile_events}
         # Get a list of earliest hostile event per planet.
         hostile_events_per_planet = get_earliest_fleet_per_destination(hostile_events.values())
@@ -656,10 +655,9 @@ class OGameBot:
                 logging.warning(f'No free slots for expeditions.')
                 break
             # Expeditions from planets under attack will be postponed.
-            incoming_hostile_fleets = find_fleets(
-                fleets=events,
-                dest=planet,
-                mission=[Mission.attack, Mission.acs_attack])
+            incoming_hostile_fleets = find_hostile_events(
+                events=events,
+                planets=planet)
             if incoming_hostile_fleets:
                 logging.warning(f'Origin is currently under attack. Postponing expedition: {expedition.data}')
                 continue
@@ -859,6 +857,23 @@ class OGameBot:
     @property
     def _retrying_after_exception(self):
         return self._exc_count > 0
+
+
+def find_hostile_events(events: List[FleetEvent],
+                        planets: Union[Planet, List[Planet]]) -> List[FleetEvent]:
+    def only_probes(e: FleetEvent) -> bool:
+        # Check if there is information about ships and whether probe is the only ship type in the fleet.
+        return e.ships and Ship.espionage_probe in e.ships and len(e.ships) == 1
+    hostile_events = find_fleets(
+        fleets=events,
+        dest=planets,
+        mission=[Mission.attack,        # standard attack mission
+                 Mission.acs_attack,    # ACS attack mission
+                 Mission.destroy,       # attack on a destroy mission
+                 Mission.espionage])    # attack on an espionage mission
+    # Filter hostile events with only probes in the fleet.
+    hostile_events = [e for e in hostile_events if not only_probes(e)]
+    return hostile_events
 
 
 def sort_escape_flights_by_safety(escape_flights: List[EscapeFlight],

@@ -290,6 +290,18 @@ class OGame:
             dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
             player_id_el = event_el.find('a', class_='sendMail')
             player_id = int(player_id_el['data-playerid']) if player_id_el else None
+            if return_flight:
+                fleet_movement_el = event_el.find(class_='icon_movement_reserve')
+            else:
+                fleet_movement_el = event_el.find(class_='icon_movement')
+            fleet_movement_tooltip_el = fleet_movement_el.find(class_='tooltip')
+            if fleet_movement_tooltip_el:
+                fleet_movement_soup = parse_html(fleet_movement_tooltip_el['title'])
+                fleet_info_el = fleet_movement_soup.find(class_='fleetinfo')
+                # Note that cargo parsing is currently not supported.
+                ships = self._parse_fleet_info(fleet_info_el, has_cargo=False)
+            else:
+                ships = None
             event = FleetEvent(
                 id=event_id,
                 origin=origin,
@@ -297,6 +309,7 @@ class OGame:
                 arrival_time=arrival_time,
                 mission=mission,
                 return_flight=return_flight,
+                ships=ships,
                 player_id=player_id)
             events.append(event)
         return events
@@ -304,27 +317,6 @@ class OGame:
     def get_fleet_movement(self,
                            return_fleet: Union[FleetMovement, int] = None,
                            delay: int = None) -> Movement:
-        def parse_fleet_info(fleet_info_el):
-            def is_resource_cell(cell_index): return cell_index >= len(fleet_info_rows) - 3  # last 3 rows are resources
-            def get_resource_from_cell(cell_index): return list(Resource)[3 - len(fleet_info_rows) + cell_index]
-            fleet_info_rows = fleet_info_el.find_all(lambda el: _find_exactly_one(el, raise_exc=False, class_='value'))
-            ships = {}
-            cargo = {}
-            for i, row in enumerate(fleet_info_rows):
-                name_col, value_col = _find_exactly(row, n=2, name='td')
-                amount = join_digits(value_col.text)
-                if is_resource_cell(i):
-                    resource = get_resource_from_cell(i)
-                    cargo[resource] = amount
-                else:
-                    tech_name = name_col.text.strip()[:-1]  # remove colon at the end
-                    tech_id = self._tech_dictionary.get(tech_name)
-                    if not tech_id:
-                        raise ParseException(f'Unknown ship (name={tech_name}) found while parsing.')
-                    ship = Ship(tech_id)
-                    ships[ship] = amount
-            return ships, cargo
-
         movement_soup = self._get_movement(return_fleet, delay=delay)
         movement_el = movement_soup.find(id='movement')
         timestamp = int(movement_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
@@ -391,7 +383,7 @@ class OGame:
                     dest_type = CoordsType.planet
                 dest = Coordinates(dest_galaxy, dest_system, dest_position, dest_type)
                 fleet_info_el = _find_exactly_one(fleet_details_el, class_='fleetinfo')
-                ships, cargo = parse_fleet_info(fleet_info_el)
+                ships, cargo = self._parse_fleet_info(fleet_info_el)
                 fleet = FleetMovement(
                     id=fleet_id,
                     origin=origin,
@@ -812,6 +804,34 @@ class OGame:
             return CoordsType.debris
         else:
             raise ValueError('Failed to parse coordinate type.')
+
+    def _parse_fleet_info(self, fleet_info_el, has_cargo=True):
+        def is_resource_cell(cell_index): return cell_index >= len(fleet_info_rows) - 3  # last 3 rows are resources
+        def get_resource_from_cell(cell_index): return list(Resource)[3 - len(fleet_info_rows) + cell_index]
+        fleet_info_rows = fleet_info_el.find_all(lambda el: _find_exactly_one(el, raise_exc=False, class_='value'))
+        ships = {}
+        cargo = {}
+        for i, row in enumerate(fleet_info_rows):
+            name_col, value_col = _find_exactly(row, n=2, name='td')
+            amount = join_digits(value_col.text)
+            if has_cargo and is_resource_cell(i):
+                resource = get_resource_from_cell(i)
+                cargo[resource] = amount
+            else:
+                tech_name = name_col.text.strip()[:-1]  # remove colon at the end
+                tech_id = self._tech_dictionary.get(tech_name)
+                if not tech_id:
+                    if has_cargo:
+                        raise ParseException(f'Unknown ship (name={tech_name}) found while parsing.')
+                    else:
+                        # We are not sure whether this was a mistake or cargo element so just skip it.
+                        continue
+                ship = Ship(tech_id)
+                ships[ship] = amount
+        if has_cargo:
+            return ships, cargo
+        else:
+            return ships
 
 
 def _find_exactly_one(root, raise_exc=True, **kwargs):
