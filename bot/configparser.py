@@ -39,8 +39,9 @@ def parse_client_config(config):
     account_config = _require('account', config)
     username = _require('username', account_config)
     password = _require('password', account_config)
-    language = _require('language', account_config)
     universe = _require('universe', account_config)
+    language = _require('language', account_config)
+    country = _require('country', account_config)
     if isinstance(universe, int):  # universe is server number
         server_number = universe
     else:  # universe is server name so we have to find the corresponding number
@@ -54,6 +55,7 @@ def parse_client_config(config):
             raise ValueError(f'Failed to match {universe} ({language}) to any server.')
         server_number = server['number']
         logging.debug(f'Matched {universe} ({language}) to server {server_number}.')
+    locale = f'{language}_{country}'
     # Parse client parameters
     bot_config = config.get('bot', {})
     request_timeout = bot_config.get('request_timeout')
@@ -63,6 +65,7 @@ def parse_client_config(config):
         'password': password,
         'language': language,
         'server_number': server_number,
+        'locale': locale,
         'request_timeout': request_timeout,
         'delay_between_requests': delay_between_requests
     })

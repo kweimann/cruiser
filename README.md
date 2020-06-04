@@ -18,7 +18,7 @@ Now, let's take a look at the [config.yaml](config.yaml). There, we can configur
 
 #### Minimal Setup
 
-Cruiser only requires you to provide your account information in order to monitor your account and defend it from any attacks. We need to provide all the essential information for Cruiser to not only log in to the account but also to find the server in which it's supposed to play. You can provide the name of the server (e.g. `Universe 1`) or just the server number (e.g. `1`). Additionally, it's mandatory to provide the language of the server as an ISO language code (e.g. `en` for OGame EN):
+Cruiser only requires you to provide your account information in order to monitor your account and defend it from any attacks. We need to provide all the essential information for Cruiser to not only log in to the account but also to find the server in which it's supposed to play. You can provide the name of the server (e.g. `Universe 1`) or just the server number (e.g. `1`). Additionally, it's mandatory to provide the language of the server as an ISO language code (e.g. `en` for OGame.org) and server country (e.g. `GB` for OGame.org):
 
 ```yaml
 account:
@@ -26,6 +26,7 @@ account:
   password: qwerty
   universe: 1
   language: en
+  country: GB
 ```
 
 With this minimal information, Cruiser will be able to log in to the account and watch for hostile fleets. If an attack should be launched on one of our planets, Cruiser will wait until some time before the attack (you can adjust that), and proceed with the defense: 
@@ -106,6 +107,7 @@ account:
   password: qwerty
   universe: 1
   language: en
+  country: GB
 
 listeners:
   telegram:

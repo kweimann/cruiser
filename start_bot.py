@@ -17,7 +17,7 @@ from ogame import OGame
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True, default='config.yaml', help='Path to the config file.')
+    parser.add_argument('--config', default='config.yaml', help='Path to the config file.')
     args = parser.parse_args()
 
     logging.config.dictConfig(load_config('logging.yaml'))

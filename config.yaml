@@ -1,9 +1,10 @@
-# Account details.
+# Account details. Required!
 account:
-  username: <username>  # account email
-  password: <password>  # account password
-  universe: <universe>  # name of the universe e.g. "Universe 1" or server number e.g. 1
-  language: <language>  # server language e.g. en
+  username:  # account email
+  password:  # account password
+  universe:  # name of the universe e.g. "Universe 1" or server number e.g. 1
+  language:  # server language e.g. en
+  country:   # server country e.g. GB; note that you can find server locale in the URL of the game lobby
 
 # Listeners for notifications from Cruiser.
 listeners:

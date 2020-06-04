@@ -18,6 +18,7 @@ from bot.protocol import (
     NotifyStopped,
     NotifyDebrisHarvest
 )
+from ogame.game.client import NotLoggedInError
 from ogame.util import ftime
 
 
@@ -180,6 +181,8 @@ def parse_notification(notif):
 
 def parse_exception(e):
     if isinstance(e, requests.Timeout):
-        return f'Exception occurred: Connection timed out'
+        return 'Exception occurred: Connection timed out'
+    elif isinstance(e, NotLoggedInError):
+        return 'Exception occurred: Failed to log in'
     else:
         return f'Exception occurred: {e}'

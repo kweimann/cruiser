@@ -5,6 +5,7 @@ from typing import List, Union, Dict
 from urllib.parse import urlparse
 
 import requests
+import yaml
 
 from ogame.api.client import OGameAPI
 from ogame.game.const import (
@@ -72,12 +73,14 @@ class OGame:
                  password: str,
                  language: str,
                  server_number: int,
+                 locale: str,
                  request_timeout: int = 10,
                  delay_between_requests: int = 0):
         self.username = username
         self.password = password
         self.language = language.casefold()
         self.server_number = server_number
+        self.locale = locale
         self.request_timeout = request_timeout
         self.delay_between_requests = delay_between_requests
 
@@ -105,35 +108,28 @@ class OGame:
     def server_data(self):
         return self._server_data
 
-    def login(self) -> None:
-        # Get PHPSESSID token used in every request.
-        php_session_id = self._get_php_session_id()
-        if not php_session_id:
-            raise ValueError('Invalid credentials.')
-        # Find the server.
+    def login(self):
+        # Get game configuration.
+        configuration = self._get_game_configuration()
+        game_env_id = configuration['connect']['gameEnvironmentId']
+        platform_game_id = configuration['connect']['platformGameId']
+        # Get token.
+        game_sess = self._get_game_session(game_env_id, platform_game_id)
+        token = game_sess['token']
+        # Set token cookie.
+        requests.utils.add_dict_to_cookiejar(self._session.cookies, {'gf-token-production': token})
+        # Find server.
+        accounts = self._get_accounts(token)
+        self._account = self._find_account(accounts)
         if not self._account:
-            self._account = self._get_account()
-            if not self._account:
-                raise ValueError('Invalid server.')
+            raise ValueError('Invalid server.')
         # Login to the server.
-        login_response = self._request(
-            method='get',
-            url='https://lobby.ogame.gameforge.com/api/users/me/loginLink',
-            delay=0,
-            params={'id': self._account['id'],
-                    'server[language]': self.language,
-                    'server[number]': self.server_number})
-        login_status = login_response.json()
-        if 'error' in login_status:
-            raise ValueError(login_status['error'])
-        # Go to the landing page in the game.
-        login_url = login_status['url']
+        login_url = self._get_login_url(token)
+        login_url = login_url['url']
+        if not self._login(login_url, token):
+            raise ValueError('Failed to log in.')
         login_url_parsed = urlparse(login_url)
         self._server_url = login_url_parsed.netloc
-        self._request(
-            method='get',
-            url=login_url,
-            delay=0)
         # Initialize tech dictionary from the API. It is used for
         #  translating ship names while parsing the movement page.
         #  Note that we assume that the dictionary won't change.
@@ -698,6 +694,80 @@ class OGame:
             data=fleet_dispatch_data,
             delay=delay)
 
+    def _get_game_configuration(self):
+        response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/config/configuration.js',
+            delay=0)
+        configuration_raw = response.text
+        configuration_obj_start = configuration_raw.find('{')
+        configuration_obj_raw = configuration_raw[configuration_obj_start:]
+        configuration = yaml.safe_load(configuration_obj_raw)
+        return configuration
+
+    def _get_game_session(self, game_env_id, platform_game_id):
+        response = self._request(
+            method='post',
+            url='https://gameforge.com/api/v1/auth/thin/sessions',
+            delay=0,
+            headers={'content-type': 'application/json'},
+            json={'autoGameAccountCreation': False,
+                  'gameEnvironmentId': game_env_id,
+                  'gfLang': self.language,
+                  'identity': self.username,
+                  'locale': self.locale,
+                  'password': self.password,
+                  'platformGameId': platform_game_id})
+        game_sess = response.json()
+        if 'error' in game_sess:
+            raise ValueError(game_sess['error'])
+        return game_sess
+
+    def _get_login_url(self, token):
+        response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/api/users/me/loginLink',
+            delay=0,
+            headers={'authorization': f'Bearer {token}'},
+            data={'id': self._account['id'],
+                  'server[language]': self.language,
+                  'server[number]': self.server_number,
+                  'clickedButton': 'account_list'})
+        login_url = response.json()
+        if 'error' in login_url:
+            raise ValueError(login_url['error'])
+        return login_url
+
+    def _login(self, login_url, token):
+        self._request(
+            method='get',
+            url=login_url,
+            delay=0,
+            headers={'authorization': f'Bearer {token}'}
+        )
+        for cookie in self._session.cookies:
+            if cookie.name == 'PHPSESSID':
+                return True
+        return False
+
+    def _find_account(self, accounts):
+        for account in accounts:
+            acc_server_number = account['server']['number']
+            acc_server_language = account['server']['language'].casefold()
+            if self.server_number == acc_server_number and self.language == acc_server_language:
+                return account
+
+    def _get_accounts(self, token):
+        response = self._request(
+            method='get',
+            url='https://lobby.ogame.gameforge.com/api/users/me/accounts',
+            delay=0,
+            headers={'authorization': f'Bearer {token}'})
+        accounts = response.json()
+        if 'error' in accounts:
+            raise ValueError(accounts['error'])
+        return accounts
+
     def _get_game_resource(self, resource, **kwargs):
         return self._request_game_resource('get', resource, **kwargs)
 
@@ -749,30 +819,6 @@ class OGame:
         if self._server_url:
             return f'https://{self._server_url}/game/index.php'
 
-    def _get_accounts(self):
-        response = self._request(
-            method='get',
-            url='https://lobby.ogame.gameforge.com/api/users/me/accounts',
-            delay=0)
-        accounts = response.json()
-        if 'error' in accounts:
-            raise ValueError(accounts['error'])
-        return accounts
-
-    def _get_php_session_id(self):
-        response = self._request(
-            method='post',
-            url='https://lobby.ogame.gameforge.com/api/users',
-            delay=0,
-            data={'kid': '',
-                  'language': self.language,
-                  'autologin': 'false',
-                  'credentials[email]': self.username,
-                  'credentials[password]': self.password})
-        for cookie in response.cookies:
-            if cookie.name == 'PHPSESSID':
-                return cookie.value
-
     def _request(self, method, url, delay=None, **kwargs):
         now = time.time()
         if delay is None:
@@ -785,14 +831,6 @@ class OGame:
         response = self._session.request(method, url, timeout=timeout, **kwargs)
         self._last_request_time = time.time()
         return response
-
-    def _get_account(self):
-        accounts = self._get_accounts()
-        for account in accounts:
-            acc_server_number = account['server']['number']
-            acc_server_language = account['server']['language'].casefold()
-            if self.server_number == acc_server_number and self.language == acc_server_language:
-                return account
 
     @staticmethod
     def _parse_coords_type(figure_el):
