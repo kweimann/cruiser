@@ -72,7 +72,7 @@ bot:
   expeditions: [neverending]
 ```
 
-As you can see, you only need to provide the origin and the fleet in order to setup a simple expedition that runs forever. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will happily manage your expeditions so that you won't have to do anything. Additionally, Cruiser watches over the galaxy in case your expeditions create debris and sends pathfinders to harvest it. Currently, expedition debris in the galaxy view can only be seen by the explorer class. Therefore, Cruiser can automatically harvest expedition debris only if you're an explorer.
+As you can see, you only need to provide the origin and the fleet in order to setup a simple expedition that runs forever. Once defined, you can add expeditions to the list in the bot configuration. Cruiser will happily manage your expeditions so that you won't have to do anything. Additionally, Cruiser watches over the galaxy in case your expeditions create debris and sends pathfinders to harvest it. Currently, expedition debris in the galaxy view can only be seen by the discoverer class. Therefore, Cruiser can automatically harvest expedition debris only if you're a discoverer.
 
 Below is a list of all names of the ships that you can send on an expedition:
 
