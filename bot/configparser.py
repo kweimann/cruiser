@@ -55,7 +55,11 @@ def parse_client_config(config):
             raise ValueError(f'Failed to match {universe} ({language}) to any server.')
         server_number = server['number']
         logging.debug(f'Matched {universe} ({language}) to server {server_number}.')
-    locale = f'{language}_{country}'
+    variations = {"us": "en"}
+    if language in variations:
+        locale = f'{variations[language]}_{country}'
+    else:
+        locale = f'{language}_{country}'
     # Parse client parameters
     bot_config = config.get('bot', {})
     request_timeout = bot_config.get('request_timeout')
