@@ -353,17 +353,6 @@ class OGameBot:
             hostile_arrival = hostile_event.arrival_time
             earliest_save_time = hostile_arrival - self.max_time_before_attack_to_act
             if current_time < earliest_save_time:
-                fleet_save_time = earliest_save_time
-            else:
-                last_friendly_arrival = last_friendly_arrivals.get(hostile_event.id)
-                if last_friendly_arrival:
-                    if current_time < (hostile_arrival - 10) < (last_friendly_arrival - 1):
-                        fleet_save_time = hostile_arrival - 10
-                    else:
-                        fleet_save_time = last_friendly_arrival + 1
-                else:
-                    fleet_save_time = earliest_save_time
-            if current_time < fleet_save_time:
                 continue  # ignore this event for now if it is not the time to save yet
             planet = match_planet(
                 coords=hostile_event.dest,
