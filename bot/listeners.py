@@ -70,7 +70,40 @@ class TelegramListener(Listener):
     def _api_url(self):
         return f'https://api.telegram.org/bot{self.api_token}'
 
+class DiscordListener(Listener):
+    def __init__(self, webhook_url):
+        self.webhook_url = webhook_url
 
+    def notify(self, notification):
+        message = parse_notification(notification)
+        if message:
+            # message = self._escape_markdown_string(message)
+            self._send_message(message)
+
+    def notify_exception(self, exception):
+        # print(exception)
+        message = parse_exception(exception)
+        self._send_message(message)
+
+    def _send_message(self, message):
+        try:
+            response = requests.post(
+                self.webhook_url,
+                timeout=5,
+                data={'content': message})
+            if not response.status_code == 204:
+                response = response.json()
+                logging.error(f'Failed to send discord message: {response.get("message")}')
+        except requests.exceptions.RequestException:
+            logging.exception('Exception thrown while sending a discord message.')
+        except ValueError:
+            logging.exception('Exception thrown while parsing the response.')
+
+    @staticmethod
+    def _escape_markdown_string(string):
+        for c in '_[]()~>#+-=|{}.!':
+            string = string.replace(c, f'\\{c}')
+        return string
 class AlertListener(Listener):
     def __init__(self, wakeup_wav=None, error_wav=None):
         self._check_wav_file(wakeup_wav, raise_exc=True)

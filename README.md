@@ -50,6 +50,8 @@ listeners:
   telegram:
     api_token: <token>
     chat_id: <chat_id>
+  discord:
+    webhook_url: <webhook_url>
 bot:
   listeners: [telegram]
 ```
