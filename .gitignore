@@ -102,3 +102,9 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+
+# personal things
+*.txt
+rhea.config.yaml
+tarazed.config.yaml

@@ -505,7 +505,9 @@ class OGame:
                            planet: Union[Planet, int],
                            delay: int = None) -> FleetDispatch:
         fleet_dispatch_soup = self._get_fleet_dispatch(planet, delay=delay)
-        token = find_first_between(str(fleet_dispatch_soup), left='fleetSendingToken = "', right='"')
+        # token = find_first_between(str(fleet_dispatch_soup), left='fleetSendingToken = "', right='"')
+        token = find_first_between(str(fleet_dispatch_soup), left='var token = "', right='"')
+
         timestamp = int(fleet_dispatch_soup.find('meta', {'name': 'ogame-timestamp'})['content'])
         slot_elements = fleet_dispatch_soup.find(id='slots').findAll('div', recursive=False)
         used_fleet_slots, max_fleet_slots = extract_numbers(slot_elements[0].text)
@@ -679,9 +681,32 @@ class OGame:
             headers={'X-Requested-With': 'XMLHttpRequest'},
             delay=delay)
 
+    def _check_fleet_dispatch(self,
+                             fleet_dispatch_data,
+                             delay: int = None):
+        return self._post_game_resource(
+            resource='json',
+            params={'page': 'ingame',
+                    'component': 'fleetdispatch',
+                    'action': 'checkTarget',
+                    'ajax': 1,
+                    'asJson': 1},
+            headers={'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                     'X-Requested-With': 'XMLHttpRequest'},
+            data=fleet_dispatch_data,
+            delay=delay)
+
     def _post_fleet_dispatch(self,
                              fleet_dispatch_data,
                              delay: int = None):
+
+        checkRes = self._check_fleet_dispatch(fleet_dispatch_data, delay)
+        if checkRes["status"] != 'success':
+             raise ValueError(checkRes["status"])
+        
+        newAjaxToken = checkRes["newAjaxToken"]
+        fleet_dispatch_data["token"] = newAjaxToken
+
         return self._post_game_resource(
             resource='json',
             params={'page': 'ingame',

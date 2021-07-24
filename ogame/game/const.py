@@ -27,6 +27,7 @@ class Mission(IdEnum):
     colonization = 7
     harvest = 8
     destroy = 9
+    missile = 10
     expedition = 15
     trade = 16
 

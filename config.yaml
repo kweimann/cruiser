@@ -11,6 +11,8 @@ listeners:
   telegram:
     api_token: <API token>  # unique authentication token of the telegram bot; see https://core.telegram.org/bots/api
     chat_id: <chat id>      # id of the chat between you and the telegram bot
+  discord:
+    webhook_url:            # discord webhook url
   alert:
     wakeup_wav:             # path to .wav file which will be played on every wake-up
     error_wav:              # path to .wav file which will be played on every exception
